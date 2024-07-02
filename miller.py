@@ -4,7 +4,7 @@ import sys
 import os
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QHBoxLayout, QListView,
-    QWidget, QAbstractItemView, QMenuBar, QMenu, QToolBar,
+    QWidget, QAbstractItemView, QMenu, QToolBar,
     QMessageBox, QLineEdit
 )
 from PyQt6.QtCore import QModelIndex, QSettings, QByteArray, Qt
@@ -30,7 +30,7 @@ class MillerColumns(QMainWindow):
         self.setCentralWidget(self.central_widget)
 
         self.layout = QHBoxLayout(self.central_widget)
-        
+
         self.columns = []
         self.file_model = QFileSystemModel()
         self.file_model.setRootPath('')
@@ -50,12 +50,11 @@ class MillerColumns(QMainWindow):
         index = column_view.indexAt(pos)
         if index.isValid():
             file_path = self.file_model.filePath(index)
-            is_directory = self.file_model.isDir(index)
 
             if os.name == 'nt':
                 self.show_windows_context_menu(file_path)
                 return
-            
+
             context_menu = QMenu()
 
             open_action = context_menu.addAction("Open")
@@ -73,7 +72,7 @@ class MillerColumns(QMainWindow):
 
             properties_action = context_menu.addAction("Properties")
             properties_action.triggered.connect(lambda: self.show_properties(index))
-            
+
             if os.name == 'nt':
                 context_menu.addSeparator()
                 show_windows_context_menu = context_menu.addAction("Show Windows Context Menu")
@@ -276,7 +275,7 @@ class MillerColumns(QMainWindow):
                 column_to_remove = self.columns.pop()
                 self.layout.removeWidget(column_to_remove)
                 column_to_remove.deleteLater()
-            
+
             # Add a new column if the selected item is a directory
             if self.file_model.isDir(current):
                 self.add_column(current)
