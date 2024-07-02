@@ -23,10 +23,9 @@ Miller Columns File Manager ("Miller") is a simple cross-platform file manager w
 
 1. Clone the repository:
 
-   ```
-   bash
-   git clone https://github.com/yourusername/miller-columns-file-manager.git
-   cd miller-columns-file-manager
+   ```sh
+   git clone https://github.com/probonopd/Miller
+   cd Miller
    ``` 
 
 2. Install dependencies:
