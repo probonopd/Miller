@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import sys
 import os
 from PyQt6.QtWidgets import (
@@ -5,7 +7,7 @@ from PyQt6.QtWidgets import (
     QWidget, QAbstractItemView, QMenuBar, QMenu, QToolBar,
     QMessageBox, QLineEdit
 )
-from PyQt6.QtCore import QModelIndex, QSettings, QByteArray, Qt, QDir
+from PyQt6.QtCore import QModelIndex, QSettings, QByteArray, Qt
 from PyQt6.QtGui import QFileSystemModel, QIcon, QAction
 
 if os.name == 'nt':
@@ -13,7 +15,13 @@ if os.name == 'nt':
     import windowscontextmenu
 
 class MillerColumns(QMainWindow):
+    """
+    Main application window for Miller Columns File Manager.
+    """
     def __init__(self):
+        """
+        Initialize the MillerColumns instance.
+        """
         super().__init__()
         self.setWindowTitle("Miller Columns File Manager")
         self.resize(800, 600)  # Default size
@@ -36,6 +44,9 @@ class MillerColumns(QMainWindow):
         self.read_settings()
 
     def show_context_menu(self, pos, column_view):
+        """
+        Display a context menu at the given position for the specified column view.
+        """
         index = column_view.indexAt(pos)
         if index.isValid():
             file_path = self.file_model.filePath(index)
@@ -72,22 +83,29 @@ class MillerColumns(QMainWindow):
             context_menu.exec(column_view.viewport().mapToGlobal(pos))
 
     def show_windows_context_menu(self, file_path):
+        """
+        Display the Windows context menu for the specified file path.
+        """
         try:
             windowscontextmenu.show_context_menu(file_path)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"{e}")
 
     def show_properties(self, index: QModelIndex):
-        print("Show properties")
+        """
+        Show properties for the file or directory specified by the QModelIndex.
+        """
         if index.isValid():
             file_path = self.file_model.filePath(index)
-            print(file_path)
             if os.name == 'nt':
                 windowsproperties.get_file_properties(file_path)
             else:
                 print("show_properties not implemented for this platform")
 
     def create_menus(self):
+        """
+        Create the main application menu bar and add menus.
+        """
         # Create a menubar
         menubar = self.menuBar()
 
@@ -137,15 +155,27 @@ class MillerColumns(QMainWindow):
         help_menu.addAction(about_action)
 
     def move_to_trash(self, indexes):
+        """
+        Move the specified indexes to the trash.
+        """
         print("Move to trash")
 
     def delete(self, indexes):
+        """
+        Delete the specified indexes.
+        """
         print("Delete")
 
     def empty_trash(self):
+        """
+        Empty the trash.
+        """
         print("Empty trash")
 
     def create_toolbar(self):
+        """
+        Create the main application toolbar.
+        """
         # Create a toolbar
         toolbar = QToolBar("Navigation")
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
@@ -165,9 +195,15 @@ class MillerColumns(QMainWindow):
         toolbar.addWidget(self.path_label)
 
     def show_about(self):
-        QMessageBox.about(self, "About", "Miller Columns File Manager\nVersion 1.0")
+        """
+        Show information about the application.
+        """
+        QMessageBox.about(self, "About", "Miller Columns File Manager\nhttps://github.com/probonopd/Miller")
 
     def _update_view(self, parent_index):
+        """
+        Update the view with the contents of the specified parent_index.
+        """
         if parent_index.isValid():
             for column_view in self.columns[1:]:
                 self.layout.removeWidget(column_view)
@@ -179,6 +215,9 @@ class MillerColumns(QMainWindow):
             self.path_label.setText(self.file_model.filePath(parent_index))
 
     def go_up(self):
+        """
+        Navigate up one directory level.
+        """
         if self.columns:
             first_view = self.columns[0]
             current_index = first_view.rootIndex()
@@ -187,6 +226,9 @@ class MillerColumns(QMainWindow):
                 self._update_view(parent_index)
 
     def go_home(self):
+        """
+        Navigate to the user's home directory.
+        """
         if self.columns:
             first_view = self.columns[0]
             current_index = first_view.rootIndex()
@@ -196,6 +238,9 @@ class MillerColumns(QMainWindow):
                 self._update_view(parent_index)
 
     def add_column(self, parent_index=None):
+        """
+        Add a new column view displaying the contents of the directory at parent_index.
+        """
         column_view = QListView()
         column_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         column_view.setUniformItemSizes(True)
@@ -221,6 +266,9 @@ class MillerColumns(QMainWindow):
         column_view.setDragEnabled(True)
 
     def on_selection_changed(self, current: QModelIndex, previous: QModelIndex):
+        """
+        Handle the selection change in the column view.
+        """
         column_index = self.get_column_index(current)
         if column_index is not None:
             # Remove all columns to the right of the current column
@@ -237,27 +285,41 @@ class MillerColumns(QMainWindow):
             self.path_label.setText(self.file_model.filePath(current))
 
     def on_double_clicked(self, index: QModelIndex):
-        # if not self.file_model.isDir(index):
+        """
+        Handle the double-click event on an item in the column view.
+        """
         file_path = self.file_model.filePath(index)
         os.startfile(file_path)
 
     def get_column_index(self, index: QModelIndex):
+        """
+        Retrieve the index of the column associated with the given QModelIndex.
+        """
         for i, column in enumerate(self.columns):
             if column.selectionModel() == self.sender():
                 return i
         return None
 
     def closeEvent(self, event):
+        """
+        Handle the close event of the main window.
+        """
         self.write_settings()
         super().closeEvent(event)
 
     def read_settings(self):
+        """
+        Read and apply stored application settings.
+        """
         settings = QSettings("MyCompany", "MillerColumnsFileManager")
         geometry = settings.value("geometry", QByteArray())
         if geometry:
             self.restoreGeometry(geometry)
 
     def write_settings(self):
+        """
+        Save current application settings.
+        """
         settings = QSettings("MyCompany", "MillerColumnsFileManager")
         settings.setValue("geometry", self.saveGeometry())
 
