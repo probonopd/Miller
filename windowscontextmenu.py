@@ -15,6 +15,8 @@ import win32com.client
 import win32con
 import win32gui
 
+# pylint: disable=c-extension-no-member
+
 if TYPE_CHECKING:
     from _win32typing import PyResourceId, PyWNDCLASS
     from win32com.client import DispatchBaseClass
