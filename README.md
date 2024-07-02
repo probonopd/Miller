@@ -34,7 +34,7 @@ Miller Columns File Manager ("Miller") is a simple cross-platform file manager w
    pip install -r requirements.txt
    ```
 
-### Usage
+## Usage
 
 ```
 python miller.py
@@ -45,15 +45,15 @@ python miller.py
 * Double-click on folders to open them in Windows Explorer.
 * Right-click on files or folders to access context menu actions.
 
-### Contributing
+## Contributing
 
 Contributions are welcome! Please fork the repository and submit a pull request with your improvements.
 
-### License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-### Acknowledgments
+## Acknowledgments
 
 - PyQt6 Documentation: https://doc.qt.io/qtforpython-6/
 - Windows platform integation: https://github.com/mhammond/pywin32
