@@ -1,18 +1,17 @@
-#!/usr/bin/env python3
-
 import sys
 import os
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QHBoxLayout, QListView,
     QWidget, QAbstractItemView, QMenu, QToolBar,
-    QMessageBox, QLineEdit
+    QMessageBox, QLineEdit, QLabel
 )
-from PyQt6.QtCore import QModelIndex, QSettings, QByteArray, Qt
+from PyQt6.QtCore import QModelIndex, QSettings, QByteArray, Qt, QSize
 from PyQt6.QtGui import QFileSystemModel, QIcon, QAction
 
 if os.name == 'nt':
     import windowsproperties
     import windowscontextmenu
+    import windowsmapdrives
 
 class MillerColumns(QMainWindow):
     """
@@ -41,45 +40,87 @@ class MillerColumns(QMainWindow):
 
         self.create_menus()
         self.create_toolbar()
+        self.create_status_bar()  # Create status bar
         self.read_settings()
+
+    def create_status_bar(self):
+        """
+        Create and initialize the status bar.
+        """
+        self.statusBar = self.statusBar()
+
+        self.selected_files_label = QLabel()
+        self.statusBar.addWidget(self.selected_files_label)
+
+        self.selected_files_size_label = QLabel()
+        self.statusBar.addWidget(self.selected_files_size_label)
+
+        self.update_status_bar()
+
+    def update_status_bar(self):
+        """
+        Update the status bar with current selection information.
+        """
+        selected_indexes = self.columns[-1].selectionModel().selectedIndexes()
+        num_selected_files = len(selected_indexes)
+        total_size = sum(self.file_model.size(index) for index in selected_indexes if index.isValid())
+
+        self.selected_files_label.setText(f"Selected files: {num_selected_files}")
+        # Depending on the size, display in bytes, KB, MB, or GB
+        if total_size >= 1024 ** 3:
+            total_size = f"{total_size / 1024 ** 3:.2f} GB"
+        elif total_size >= 1024 ** 2:
+            total_size = f"{total_size / 1024 ** 2:.2f} MB"
+        elif total_size >= 1024:
+            total_size = f"{total_size / 1024:.2f} KB"
+        else:
+            total_size = f"{total_size} bytes"
+        self.selected_files_size_label.setText(f"Total size: {total_size}")
 
     def show_context_menu(self, pos, column_view):
         """
         Display a context menu at the given position for the specified column view.
         """
         index = column_view.indexAt(pos)
-        if index.isValid():
+
+        if not index.isValid():
+            parent_index = column_view.rootIndex()
+            if parent_index.isValid():
+                file_path = self.file_model.filePath(parent_index)
+            else:
+                return
+        else:
             file_path = self.file_model.filePath(index)
 
-            if os.name == 'nt':
-                self.show_windows_context_menu(file_path)
-                return
+        if os.name == 'nt':
+            self.show_windows_context_menu(file_path)
+            return
 
-            context_menu = QMenu()
+        context_menu = QMenu()
 
-            open_action = context_menu.addAction("Open")
-            open_action.triggered.connect(lambda: self.on_double_clicked(index))
+        open_action = context_menu.addAction("Open")
+        open_action.triggered.connect(lambda: self.on_double_clicked(index))
+        context_menu.addSeparator()
+
+        context_menu.addAction(self.cut_action)
+        context_menu.addAction(self.copy_action)
+        context_menu.addAction(self.paste_action)
+        context_menu.addSeparator()
+
+        context_menu.addAction(self.move_to_trash_action)
+        context_menu.addAction(self.delete_action)
+        context_menu.addSeparator()
+
+        properties_action = context_menu.addAction("Properties")
+        properties_action.triggered.connect(lambda: self.show_properties(index))
+
+        if os.name == 'nt':
             context_menu.addSeparator()
+            show_windows_context_menu = context_menu.addAction("Show Windows Context Menu")
+            show_windows_context_menu.triggered.connect(lambda: self.show_windows_context_menu(file_path))
+            context_menu.addAction(show_windows_context_menu)
 
-            context_menu.addAction(self.cut_action)
-            context_menu.addAction(self.copy_action)
-            context_menu.addAction(self.paste_action)
-            context_menu.addSeparator()
-
-            context_menu.addAction(self.move_to_trash_action)
-            context_menu.addAction(self.delete_action)
-            context_menu.addSeparator()
-
-            properties_action = context_menu.addAction("Properties")
-            properties_action.triggered.connect(lambda: self.show_properties(index))
-
-            if os.name == 'nt':
-                context_menu.addSeparator()
-                show_windows_context_menu = context_menu.addAction("Show Windows Context Menu")
-                show_windows_context_menu.triggered.connect(lambda: self.show_windows_context_menu(file_path))
-                context_menu.addAction(show_windows_context_menu)
-
-            context_menu.exec(column_view.viewport().mapToGlobal(pos))
+        context_menu.exec(column_view.viewport().mapToGlobal(pos))
 
     def show_windows_context_menu(self, file_path):
         """
@@ -112,10 +153,18 @@ class MillerColumns(QMainWindow):
         file_menu = menubar.addMenu("File")
         close_action = QAction("Close", self)
         close_action.triggered.connect(self.close)
+        map_drive_action = QAction("Map Network Drive", self)
+        map_drive_action.triggered.connect(self.map_network_drive)
+        unmap_drive_action = QAction("Unmap Network Drive", self)
+        unmap_drive_action.triggered.connect(self.unmap_network_drive)
         quit_action = QAction("Quit", self)
         quit_action.triggered.connect(QApplication.instance().quit)
         file_menu.addAction(close_action)
         file_menu.addSeparator()
+        if os.name == 'nt':
+            file_menu.addAction(map_drive_action)
+            file_menu.addAction(unmap_drive_action)
+            file_menu.addSeparator()
         file_menu.addAction(quit_action)
 
         # Edit menu
@@ -153,6 +202,24 @@ class MillerColumns(QMainWindow):
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
 
+    def map_network_drive(self):
+        """
+        Open a dialog to map a network drive.
+        """
+        if os.name == 'nt':
+            network_drive_manager = windowsmapdrives.NetworkDriveManager()
+            map_dialog = windowsmapdrives.MapDriveDialog(network_drive_manager)
+            map_dialog.exec()
+
+    def unmap_network_drive(self):
+        """
+        Open a dialog to unmap a network drive.
+        """
+        if os.name == 'nt':
+            network_drive_manager = windowsmapdrives.NetworkDriveManager()
+            unmap_dialog = windowsmapdrives.UnmapDriveDialog(network_drive_manager)
+            unmap_dialog.exec()
+
     def move_to_trash(self, indexes):
         """
         Move the specified indexes to the trash.
@@ -189,9 +256,31 @@ class MillerColumns(QMainWindow):
 
         # Add a QLineEdit to show current directory path
         self.path_label = QLineEdit()
-        self.path_label.setReadOnly(True)  # Make it read-only
-        self.path_label.setPlaceholderText("Current Directory Path")
+        self.path_label.setReadOnly(False)  # Make it editable
+        self.path_label.setPlaceholderText("Enter Directory Path")
+        self.path_label.returnPressed.connect(self.change_path)  # Connect the returnPressed signal to change_path method
         toolbar.addWidget(self.path_label)
+
+    def change_path(self):
+        """
+        Change to the directory specified in the path_label.
+        """
+        path = self.path_label.text()
+        print("Should change path to %s" % path)
+        if self.is_valid_path(path):
+            parent_index = self.file_model.index(path)
+            self._update_view(parent_index)
+        else:
+            QMessageBox.critical(self, "Error", f"The path '{path}' does not exist or is not a directory.")
+
+    def is_valid_path(self, path):
+        """
+        Check if the given path is a valid directory or network path.
+        """
+        if os.name == 'nt' and path.startswith('\\\\'):
+            QMessageBox.information(self, "Network Path", "This is a network path. Please map it first.")
+            return False
+        return os.path.exists(path) and os.path.isdir(path)
 
     def show_about(self):
         """
@@ -210,8 +299,9 @@ class MillerColumns(QMainWindow):
             self.columns = self.columns[:1]
             self.columns[0].setRootIndex(parent_index)
 
-            # Update current directory path
-            self.path_label.setText(self.file_model.filePath(parent_index))
+            # Update current directory path if it is a valid directory
+            if self.file_model.isDir(parent_index):
+                self.path_label.setText(self.file_model.filePath(parent_index))
 
     def go_up(self):
         """
@@ -241,7 +331,7 @@ class MillerColumns(QMainWindow):
         Add a new column view displaying the contents of the directory at parent_index.
         """
         column_view = QListView()
-        column_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        column_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)  # Allow multiple selections
         column_view.setUniformItemSizes(True)
         column_view.setAlternatingRowColors(True)  # Enable alternating row colors
         column_view.setModel(self.file_model)
@@ -260,6 +350,9 @@ class MillerColumns(QMainWindow):
 
         # Connect the custom context menu
         column_view.customContextMenuRequested.connect(lambda pos: self.show_context_menu(pos, column_view))
+
+        # Connect selection change to update status bar
+        column_view.selectionModel().selectionChanged.connect(self.update_status_bar)
 
         # Allow dragging
         column_view.setDragEnabled(True)
@@ -280,8 +373,9 @@ class MillerColumns(QMainWindow):
             if self.file_model.isDir(current):
                 self.add_column(current)
 
-            # Update current directory path
-            self.path_label.setText(self.file_model.filePath(current))
+            # Update current directory path if it is a valid directory
+            if self.file_model.isDir(current):
+                self.path_label.setText(self.file_model.filePath(current))
 
     def on_double_clicked(self, index: QModelIndex):
         """
