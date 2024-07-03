@@ -129,6 +129,8 @@ def windows_context_menu_file(file_path: os.PathLike | str):
     for i, verb in enumerate(context_menu):
         if verb.Name:
             win32gui.AppendMenu(hmenu, win32con.MF_STRING, i + 1, verb.Name)
+        else:
+            win32gui.AppendMenu(hmenu, win32con.MF_SEPARATOR, 0, "")
     pt: tuple[int, int] = win32gui.GetCursorPos()
 
     with RobustInvisibleWindow() as hwnd:
@@ -155,7 +157,11 @@ def windows_context_menu_folder(folder_path: os.PathLike | str):
     for i, verb in enumerate(context_menu):
         if verb.Name:
             win32gui.AppendMenu(hmenu, win32con.MF_STRING, i + 1, verb.Name)
-
+            # FIXME: The following actions only give errors, so disable them. But we need a way to get the non-localized names of these actions.
+            # if i == 12 or i == 18:
+            #     win32gui.EnableMenuItem(hmenu, i + 1, win32con.MF_BYCOMMAND | win32con.MF_DISABLED)
+        else:
+            win32gui.AppendMenu(hmenu, win32con.MF_SEPARATOR, 0, "")
     pt: tuple[int, int] = win32gui.GetCursorPos()
 
     with RobustInvisibleWindow() as hwnd:
@@ -184,7 +190,8 @@ def windows_context_menu_multiple(paths: Sequence[os.PathLike | str]):
     for i, verb in enumerate(context_menu):
         if verb.Name:
             win32gui.AppendMenu(hmenu, win32con.MF_STRING, i + 1, verb.Name)
-
+        else:
+            win32gui.AppendMenu(hmenu, win32con.MF_SEPARATOR, 0, "")
     pt: tuple[int, int] = win32gui.GetCursorPos()
 
     with RobustInvisibleWindow() as hwnd:
@@ -230,7 +237,7 @@ def show_context_menu(paths):
         print("TODO: Handle mixed types or invalid paths")
 
 
-# Example usage
+"""# Example usage
 if __name__ == "__main__":
     # Example with a folder path
     folderpath = r"C:\Windows\System32"
@@ -246,3 +253,4 @@ if __name__ == "__main__":
         r"C:\Windows\System32\notepad.exe",
     ]
     show_context_menu(multiple_files)
+"""
