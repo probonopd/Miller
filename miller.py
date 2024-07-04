@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QWidget, QAbstractItemView, QMenu, QToolBar,
     QMessageBox, QLineEdit, QLabel
 )
-from PyQt6.QtCore import QModelIndex, QSettings, QByteArray, Qt, QSize
+from PyQt6.QtCore import QModelIndex, QSettings, QByteArray, Qt, QSize, QDir
 from PyQt6.QtGui import QFileSystemModel, QIcon, QAction
 
 if os.name == 'nt':
@@ -34,6 +34,9 @@ class MillerColumns(QMainWindow):
         self.file_model = QFileSystemModel()
         self.file_model.setRootPath('')
         self.file_model.setOption(QFileSystemModel.Option.DontUseCustomDirectoryIcons, False)  # Enable color icons
+        
+        self.file_model.setFilter(QDir.Filter.AllEntries | QDir.Filter.Hidden | QDir.Filter.System)
+        # FIXME: . and .. should not be shown in the view, but things like $RECYCLE.BIN should be shown
 
         home_dir = os.path.expanduser('~')
         self.add_column(self.file_model.index(home_dir))
@@ -81,55 +84,25 @@ class MillerColumns(QMainWindow):
         """
         Display a context menu at the given position for the specified column view.
         """
-        index = column_view.indexAt(pos)
+        indexes = column_view.selectedIndexes()
 
-        if not index.isValid():
+        if not indexes:
             parent_index = column_view.rootIndex()
             if parent_index.isValid():
-                file_path = self.file_model.filePath(parent_index)
+                file_paths = [self.file_model.filePath(parent_index)]
             else:
                 return
         else:
-            file_path = self.file_model.filePath(index)
+            file_paths = [self.file_model.filePath(index) for index in indexes]
 
         if os.name == 'nt':
-            self.show_windows_context_menu(file_path)
+            try:
+                windowscontextmenu.show_context_menu(file_paths)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"{e}")
             return
-
-        context_menu = QMenu()
-
-        open_action = context_menu.addAction("Open")
-        open_action.triggered.connect(lambda: self.on_double_clicked(index))
-        context_menu.addSeparator()
-
-        context_menu.addAction(self.cut_action)
-        context_menu.addAction(self.copy_action)
-        context_menu.addAction(self.paste_action)
-        context_menu.addSeparator()
-
-        context_menu.addAction(self.move_to_trash_action)
-        context_menu.addAction(self.delete_action)
-        context_menu.addSeparator()
-
-        properties_action = context_menu.addAction("Properties")
-        properties_action.triggered.connect(lambda: self.show_properties(index))
-
-        if os.name == 'nt':
-            context_menu.addSeparator()
-            show_windows_context_menu = context_menu.addAction("Show Windows Context Menu")
-            show_windows_context_menu.triggered.connect(lambda: self.show_windows_context_menu(file_path))
-            context_menu.addAction(show_windows_context_menu)
-
-        context_menu.exec(column_view.viewport().mapToGlobal(pos))
-
-    def show_windows_context_menu(self, file_path):
-        """
-        Display the Windows context menu for the specified file path.
-        """
-        try:
-            windowscontextmenu.show_context_menu(file_path)
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"{e}")
+        else:
+            QMessageBox.critical(self, "Error", "Context menu not supported on this platform.")
 
     def show_properties(self, index: QModelIndex):
         """
@@ -382,7 +355,10 @@ class MillerColumns(QMainWindow):
         Handle the double-click event on an item in the column view.
         """
         file_path = self.file_model.filePath(index)
-        os.startfile(file_path)
+        try:
+            os.startfile(file_path)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"{e}")
 
     def get_column_index(self, index: QModelIndex):
         """
