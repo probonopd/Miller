@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 import string
 import subprocess
 from PyQt6.QtWidgets import QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, QMessageBox, QComboBox
-import ctypes
-from ctypes import wintypes
-from string import ascii_uppercase
+
 
 class NetworkDriveManager:
     """
@@ -44,6 +43,7 @@ class NetworkDriveManager:
 
         :param drive_letter: The drive letter to unmap (e.g., 'Z:')
         """
+        drive_letter = drive_letter[0] + ":"
         try:
             subprocess.check_call(['net', 'use', '/del', drive_letter])
             QMessageBox.information(None, "Success", f"Drive {drive_letter} unmapped successfully")
@@ -56,38 +56,11 @@ class NetworkDriveManager:
 
         :return: List of available drive letters
         """
-        used_drives = set()
-        try:
-            result = subprocess.run(['net', 'use'], capture_output=True, text=True, encoding='cp437')
-            lines = result.stdout.strip().split('\n')
-            for line in lines[1:]:
-                parts = line.split()
-                if len(parts) >= 2 and parts[1].strip(':') in string.ascii_uppercase:
-                    drive_letter = parts[1].strip(':').upper()
-                    used_drives.add(drive_letter)
-        except subprocess.CalledProcessError as e:
-            QMessageBox.critical(None, "Error", f"Failed to retrieve used drive letters\n{e}")
-
+        used_drives = get_drive_letters()
+        used_drives = [d[0] for d in used_drives] # Remove all but the first character of the drive letter
+        print("Used drives: ", used_drives)
         available_drives = [d for d in string.ascii_uppercase if d not in used_drives]
         return available_drives
-
-    def get_mapped_network_drives(self):
-        """
-        Get a list of mapped network drives.
-
-        :return: List of tuples (drive_letter, network_path)
-        """
-        drives = []
-        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-
-        for letter in ascii_uppercase:
-            root_path = f"{letter}:\\"
-            drive_type = kernel32.GetDriveTypeW(root_path)
-
-            if drive_type not in [2, 3]:  # Exclude DRIVE_REMOVABLE (2) and DRIVE_FIXED (3)
-                drives.append(root_path)
-
-        return drives
 
 
 class MapDriveDialog(QDialog):
@@ -175,7 +148,7 @@ class UnmapDriveDialog(QDialog):
         self.layout = QVBoxLayout()
 
         self.drive_letter_combo = QComboBox()
-        mapped_drives = self.network_drive_manager.get_mapped_network_drives()
+        mapped_drives = get_drive_letters()
         self.drive_letter_combo.addItems([drive[0] for drive in mapped_drives])
         self.drive_letter_combo.setPlaceholderText("Select Drive Letter")
         self.layout.addWidget(self.drive_letter_combo)
@@ -218,6 +191,22 @@ class UnmapDriveDialog(QDialog):
         self.network_drive_manager.unmap_drive(drive_letter)
         self.close()
 
+def get_drive_letters():
+    """
+    Get a list of drive letters for all connected drives.
+    """
+    if os.name == 'nt':
+        import string
+        from ctypes import windll
+        drives = []
+        bitmask = windll.kernel32.GetLogicalDrives()
+        for letter in string.ascii_uppercase:
+            if bitmask & 1:
+                drives.append(f"{letter}:\\")
+            bitmask >>= 1
+        return drives
+    else:
+        return []
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
