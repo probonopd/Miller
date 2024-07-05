@@ -37,7 +37,7 @@ Miller Columns File Manager ("Miller") is a simple cross-platform file manager w
 ## Usage
 
 ```
-python miller.py
+python main.py
 ```
 
 * Use the toolbar buttons to navigate (Up, Home) and view the current directory path.
