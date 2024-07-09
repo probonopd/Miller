@@ -9,16 +9,58 @@ including file navigation, status bar updates, etc.
 
 import sys
 import os
-from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QVBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget
-from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl
-from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap
+from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QVBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu
+from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl, QMimeData
+from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QDrag, QCursor
 from PyQt6.QtWebEngineWidgets import QWebEngineView # pip install PyQt6-WebEngine
 import mimetypes
-from file_operations import move_to_trash, delete, empty_trash
 from windows_integration import show_context_menu, show_properties
+import windows_file_operations
 import menus
 import toolbar
 import status_bar
+
+class DragDropListView(QListView):
+    """
+    Custom list view that supports drag and drop operations.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+    
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() or event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls() or event.mimeData().hasText():
+
+            # FIXME: Pressing or letting go of the control key should change the drop action during a drag operation but it doesn't; 
+            # only the initial key state is considered
+            if QApplication.keyboardModifiers() == Qt.KeyboardModifier.ControlModifier:
+                event.setDropAction(Qt.DropAction.CopyAction)
+            else:
+                event.setDropAction(Qt.DropAction.MoveAction)
+        
+            event.acceptProposedAction()
+
+    def startDrag(self, supportedActions):
+        index = self.currentIndex()
+        if index.isValid():
+            drag = QDrag(self)
+            mime_data = QMimeData()
+            item_path = self.model().filePath(index)
+            mime_data.setUrls([QUrl.fromLocalFile(item_path)])
+            drag.setMimeData(mime_data)
+
+            # The icon of the dragged item
+            icon = self.model().fileIcon(index)
+            drag.setPixmap(icon.pixmap(16, 16))
+            drag.setHotSpot(drag.pixmap().rect().center())
+
+            self.setDragEnabled(True)
+
+            drag.exec()
 
 class MillerColumns(QMainWindow):
     """
@@ -59,6 +101,43 @@ class MillerColumns(QMainWindow):
         status_bar.create_status_bar(self)
         self.read_settings()
 
+        self.setAcceptDrops(False) # Dropping is only allowed in the column views, which handle it themselves using a QListView subclass
+
+    def dragEnterEvent(self, event):
+        print("Drag enter event")
+        if event.mimeData().hasUrls():
+            print("Has URLs, accepting proposed action %s" % event.proposedAction())
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        print("Drop event")
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            print("Has URLs, accepting proposed action %s" % event.proposedAction())
+            file_paths = [url.toLocalFile() for url in urls]
+            # Path onto which the files were dropped
+            drop_target = self.file_model.filePath(self.columns[-1].rootIndex())
+            if not file_paths:
+                return
+            event.acceptProposedAction()
+
+            try:
+                    menu = QMenu()
+                    move_action = menu.addAction("Move")
+                    copy_action = menu.addAction("Copy")
+                    link_action = menu.addAction("Link")
+                    menu.addSeparator()
+                    cancel_action = menu.addAction("Cancel")
+                    action = menu.exec(QCursor.pos())
+                    if action == move_action:
+                        windows_file_operations.move_files_with_dialog(file_paths, drop_target)
+                    elif action == copy_action:
+                        windows_file_operations.copy_files_with_dialog(file_paths, drop_target)
+                    elif action == link_action:
+                        windows_file_operations.create_shortcuts_with_dialog(file_paths, drop_target)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"{e}")
+    
     def create_preview_panel(self):
         """
         Create the file preview panel on the right side of the window.
@@ -125,7 +204,7 @@ class MillerColumns(QMainWindow):
 
             # Update current directory path if it is a valid directory
             if self.file_model.isDir(parent_index):
-                self.path_label.setText(self.file_model.filePath(parent_index))
+                self.path_label.setText(os.path.dirname(self.file_model.filePath(parent_index)))
 
     def go_up(self):
         """
@@ -151,35 +230,28 @@ class MillerColumns(QMainWindow):
                 self._update_view(parent_index)
 
     def add_column(self, parent_index=None):
-        """
-        Add a new column view displaying the contents of the directory at parent_index.
-        """
-        column_view = QListView()
-        column_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)  # Allow multiple selections
+        column_view = DragDropListView()
+        column_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         column_view.setUniformItemSizes(True)
-        column_view.setAlternatingRowColors(True)  # Enable alternating row colors
+        column_view.setAlternatingRowColors(True)
         column_view.setModel(self.file_model)
 
         if parent_index:
             column_view.setRootIndex(parent_index)
 
-        self.column_layout.addWidget(column_view)
-        self.columns.append(column_view)
+        column_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        column_view.customContextMenuRequested.connect(lambda pos: self.show_context_menu(pos, column_view))
+        column_view.setDragEnabled(True)
+
+        column_view.dragEnterEvent = self.dragEnterEvent
+        column_view.dropEvent = self.dropEvent
 
         column_view.selectionModel().currentChanged.connect(self.on_selection_changed)
         column_view.doubleClicked.connect(self.on_double_clicked)
-
-        # Ensure context menu policy is set
-        column_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-
-        # Connect the custom context menu
-        column_view.customContextMenuRequested.connect(lambda pos: self.show_context_menu(pos, column_view))
-
-        # Connect selection change to update status bar
         column_view.selectionModel().selectionChanged.connect(lambda: status_bar.update_status_bar(self))
 
-        # Allow dragging
-        column_view.setDragEnabled(True)
+        self.column_layout.addWidget(column_view)
+        self.columns.append(column_view)
 
     def on_selection_changed(self, current: QModelIndex, previous: QModelIndex):
         """
