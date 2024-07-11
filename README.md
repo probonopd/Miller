@@ -2,7 +2,7 @@
 
 ![](screenshot.png)
 
-Miller Columns File Manager ("Miller") is a simple cross-platform file manager written in PyQt6 that provides a file management interface based on the [Miller Columns](https://en.wikipedia.org/wiki/Miller_columns) concept.
+Miller Columns File Manager ("Miller") is a simple cross-platform file manager (currently impemented for and tested on Windows) written in PyQt6 that provides a file management interface based on the [Miller Columns](https://en.wikipedia.org/wiki/Miller_columns) concept.
 
 ## Features
 
