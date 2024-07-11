@@ -9,8 +9,8 @@ including file navigation, status bar updates, etc.
 
 import sys
 import os
-from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QVBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu
-from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl, QMimeData
+from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QVBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu, QStyle
+from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl, QMimeData, QSize
 from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QDrag, QCursor
 from PyQt6.QtWebEngineWidgets import QWebEngineView # pip install PyQt6-WebEngine
 import mimetypes
@@ -20,6 +20,23 @@ import menus
 import toolbar
 import status_bar
 
+class CustomFileSystemModel(QFileSystemModel):
+    """
+    Custom file system model that allows us to customize e.g., the icons being used.
+    """
+    def data(self, index, role):
+        if role == Qt.ItemDataRole.DecorationRole:
+            if self.isDir(index):
+                return self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
+        return super().data(index, role)
+
+    def style(self):
+        # To access the style in the model, we need to create a temporary widget
+        # This is a workaround because models don't have a style method
+        from PyQt6.QtWidgets import QWidget
+        return QWidget().style()
+    
+
 class DragDropListView(QListView):
     """
     Custom list view that supports drag and drop operations.
@@ -27,7 +44,7 @@ class DragDropListView(QListView):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAcceptDrops(True)
-    
+   
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls() or event.mimeData().hasText():
             event.acceptProposedAction()
@@ -74,6 +91,8 @@ class MillerColumns(QMainWindow):
         self.setWindowTitle("Miller Columns File Manager")
         self.resize(1000, 600)  # Default size
 
+        self.setWindowIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
+
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
 
@@ -82,9 +101,9 @@ class MillerColumns(QMainWindow):
         self.column_layout = QHBoxLayout()
         self.columns = []
 
-        self.file_model = QFileSystemModel()
+        self.file_model = CustomFileSystemModel()
         self.file_model.setRootPath('')
-        self.file_model.setOption(QFileSystemModel.Option.DontUseCustomDirectoryIcons, False)  # Enable color icons
+        self.file_model.setOption(CustomFileSystemModel.Option.DontUseCustomDirectoryIcons, False)  # Enable color icons
         self.file_model.setFilter(QDir.Filter.AllEntries | QDir.Filter.Hidden | QDir.Filter.System)
         # FIXME: . and .. should not be shown in the view, but things like $RECYCLE.BIN should be shown
 
@@ -233,7 +252,28 @@ class MillerColumns(QMainWindow):
         column_view = DragDropListView()
         column_view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         column_view.setUniformItemSizes(True)
+
         column_view.setAlternatingRowColors(True)
+        # Set alternating row colors and text color using a style sheet
+        column_view.setStyleSheet("""
+            QListView::item {
+                background-color: white;
+                color: black;
+            }
+            QListView::item:alternate {
+                background-color: #f7f7f7;
+                color: black;
+            }
+            QListView::item:selected {
+                color: white;
+                background-color: palette(highlight);
+            }
+            QListView::item:selected:active {
+                color: palette(highlightedText);
+                background-color: palette(highlight);
+            }
+        """)
+
         column_view.setModel(self.file_model)
 
         if parent_index:
@@ -401,6 +441,7 @@ class MillerColumns(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    app.setWindowIcon(app.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
     window = MillerColumns()
     window.show()
     sys.exit(app.exec())

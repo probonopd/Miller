@@ -53,7 +53,14 @@ def show_context_menu(paths: Sequence[os.PathLike | str]):
         if verb.Name:
             app = QApplication.instance()
             action = QAction(verb.Name, app)
-            action.triggered.connect(lambda _, v=verb: execute_verb(v))
+            # Copying the path does not work using the default context menu action,
+            # hence we override it
+            # FIXME: Find a way that works independently of the language
+            if "path" or "Pfad" in verb.Name:
+                # Copy path to clipboard
+                action.triggered.connect(lambda _, p=paths[0]: app.clipboard().setText(str(p)))
+            else:
+                action.triggered.connect(lambda _, v=verb: execute_verb(v))
             menu.addAction(action)
         else:
             menu.addSeparator()
