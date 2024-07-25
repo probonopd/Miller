@@ -1,0 +1,27 @@
+name: Build and Deploy exe
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-deploy:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Build executable
+        run: |
+          pyinstaller --windowed --onefile --name Spatial spatial.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: Spatial.exe
+          path: dist/Spatial.exe
