@@ -7,9 +7,15 @@ import sys
 import os
 import json
 import subprocess
+import math
+
 from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo
 from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QLinearGradient, QPainter, QPen, QBrush, QPixmap
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog
+
+if sys.platform == "win32":
+    from win32com.client import Dispatch
+    import winreg
 
 class SpatialFiler(QWidget):
 
@@ -134,6 +140,15 @@ class SpatialFiler(QWidget):
         edit_menu.addAction(self.delete_action)
         for action in [self.cut_action, self.copy_action, self.paste_action, self.delete_action]:
             action.setEnabled(False)
+        # Go Menu
+        go_menu = self.menu_bar.addMenu("Go")
+        home_action = QAction("Home", self)
+        home_action.triggered.connect(self.open_home)
+        go_menu.addAction(home_action)
+        if sys.platform == "win32":
+            start_menu_action = QAction("Applications", self)
+            start_menu_action.triggered.connect(self.open_start_menu_folder)
+            go_menu.addAction(start_menu_action)
         # View Menu
         view_menu = self.menu_bar.addMenu("View")
         if os.path.normpath(os.path.dirname(self.path)) == os.path.normpath(QDir.homePath()) and os.path.basename(self.path) == "Desktop":
@@ -147,11 +162,25 @@ class SpatialFiler(QWidget):
             align_items_staggered_action = QAction("Align Items Staggered", self)
             align_items_staggered_action.triggered.connect(self.align_items_staggered)
             view_menu.addAction(align_items_staggered_action)
+            align_items_circle_action = QAction("Align Items in Circle", self)
+            align_items_circle_action.triggered.connect(self.align_items_circle)
+            view_menu.addAction(align_items_circle_action)
         # Help Menu
         help_menu = self.menu_bar.addMenu("Help")
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+
+    def open_home(self):
+        i = Item(QDir.homePath(), True, QPoint(0, 0), self.container)
+        i.open(None)
+        i = None
+
+    def open_start_menu_folder(self):
+        self.start_menu_folder = os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'Start Menu', 'Programs')
+        i = Item(self.start_menu_folder, True, QPoint(0, 0), self.container)
+        i.open(None)
+        i = None
 
     def populate_items(self):
         print(f"Populating items for path: {self.path}")
@@ -162,20 +191,16 @@ class SpatialFiler(QWidget):
             print("Adding disks")
             for disk in QDir.drives():
                 if not any(item.name == disk.path() for item in self.files):
-                    icon_provider = QFileIconProvider()
-                    icon = icon_provider.icon(self.get_file_info(disk.path())).pixmap(48, 48)
                     # The name of the disk is the first part of the path, e.g. "C:" or "D:"
                     disk_name = disk.path()
                     print("Adding disk", disk_name)
-                    self.add_file(disk_name, disk.path(), icon, True)
+                    self.add_file(disk.path(), True)
 
             # Add the Trash item
             if not any(item.name == app.trash_name for item in self.files):
                 print("Adding Trash item")
                 trash = os.path.join(self.path, app.trash_name)
-                icon_provider = QFileIconProvider()
-                icon = icon_provider.icon(QFileIconProvider.IconType.Trashcan).pixmap(48, 48)
-                self.add_file(app.trash_name, trash, icon, True)
+                self.add_file(trash, True)
     
         try:
             entries = os.listdir(self.path)
@@ -190,25 +215,21 @@ class SpatialFiler(QWidget):
                     if entry == app.desktop_settings_file:
                         continue
                     # ~/Desktop is a special case; we don't want to show it
-                    # if self.path == QDir.homePath() and entry == "Desktop":
-                    #     continue
+                    if self.path == QDir.homePath() and entry == "Desktop":
+                        continue
+                        entry = os.path.splitext(entry)[0]
                     entry_path = os.path.join(self.path, entry)
                     is_directory = os.path.isdir(entry_path)
 
-                    icon_provider = QFileIconProvider()
-                    icon = icon_provider.icon(self.get_file_info(entry_path)).pixmap(48, 48)
-                    self.add_file(entry, entry_path, icon, is_directory)
+                    self.add_file(entry_path, is_directory)
+
         except Exception as e:
             print(f"Error accessing directory: {e}")
-
-    def get_file_info(self, path):
-        """Get file info to use with QFileIconProvider"""
-        return QFileInfo(path)
 
     def calculate_max_width(self):
         return max(item.width() for item in self.files) if self.files else 150
 
-    def add_file(self, name, path, icon, is_directory):
+    def add_file(self, path, is_directory):
         position = QPoint(self.start_x + len(self.files) % 5 * (self.calculate_max_width() + self.horizontal_spacing), 
                           self.start_y + len(self.files) // 5 * (self.line_height + self.vertical_spacing))
         # Check whether a position is provided in the .DS_Spatial file; if yes, use it
@@ -218,12 +239,12 @@ class SpatialFiler(QWidget):
                 try:
                     settings = json.load(file)
                     for item in settings["items"]:
-                        if item["name"] == name:
+                        if item["name"] == robust_filename(path):
                             position = QPoint(item["x"], item["y"])
                 except json.JSONDecodeError as e:
                     print(f"Error reading settings file: {e}")
 
-        item = Item(name, icon, path, is_directory, position, self.container)
+        item = Item(path, is_directory, position, self.container)
         item.move(position)
         item.show()
         self.files.append(item)
@@ -368,7 +389,7 @@ class SpatialFiler(QWidget):
             settings["items"] = []
             for item in self.files:
                 if item.name != app.desktop_settings_file:
-                    settings["items"].append({"name": item.name, "x": item.pos().x(), "y": item.pos().y()})
+                    settings["items"].append({"name": robust_filename(item.path), "x": item.pos().x(), "y": item.pos().y()})
             try:
                 with open(settings_file, "w") as file:
                     json.dump(settings, file, indent=4)
@@ -554,20 +575,66 @@ class SpatialFiler(QWidget):
                 current_row = 0
                 current_column += 1
 
+    def align_items_circle(self):
+        width = 200
+        horizontal_spacing = 10
+        vertical_spacing = 5
+        radius = self.width() // 2 - horizontal_spacing - width // 2
+
+        # Calculate the center of the circle
+        circle_center_x = radius + width // 2
+        circle_center_y = radius + vertical_spacing
+
+        # Iterate over the items
+        for i, item in enumerate(self.files):
+            # Calculate the new position of the item
+            angle = i * 2 * math.pi / len(self.files)
+            new_x = circle_center_x + radius * math.cos(angle)
+            new_y = circle_center_y + radius * math.sin(angle)
+
+            # If the item's text is wider than the item's icon, need to adjust the x position by moving it to the left
+            if item.text_label.width() > item.icon_label.width():
+                new_x -= int((item.text_label.width() - item.icon_label.width()) / 2)
+
+            # Move the item to the new position
+            item.move(int(new_x), int(new_y))
+
     def show_about(self):
         QMessageBox.about(self, "About", "Spatial File Manager\n\nA simple file manager that uses a spatial interface.")
 
+def robust_filename(path):
+    # Use this instead of os.path.basename to avoid issues on Windows
+    name = os.path.basename(path)
+    # If the path is e.g., "C:/", the name should be "C:"
+    if name == "":
+        name = path
+    # Remove the final slash if it ends with one
+    if name.endswith("/"):
+        name = name[:-1]
+    return name
+
 class Item(QWidget):
-    def __init__(self, name, icon, path, is_directory, position, parent=None):
+    def __init__(self, path, is_directory, position, parent=None):
         super().__init__(parent)
-        self.name = name
         self.path = path
+        self.name = robust_filename(path)
+
+        # On Windows, files ending with .lnk are shortcuts; we remove the final extension from the name
+        if sys.platform == "win32" and self.name.endswith(".lnk"):
+            self.name = os.path.splitext(self.name)[0]
+        
         self.is_directory = is_directory
         self.position = position
 
+        icon_provider = QFileIconProvider()
+        if self.path == os.path.normpath(os.path.join(QDir.homePath(), "Desktop", app.trash_name)):
+            icon = icon_provider.icon(QFileIconProvider.IconType.Trashcan).pixmap(48, 48)
+        else:
+            icon = icon_provider.icon(QFileInfo(self.path)).pixmap(48, 48)
+
         # Maximum 150 pixels wide, elide the text in the middle
         font_metrics = QFontMetrics(self.font())
-        self.elided_name = font_metrics.elidedText(name, Qt.TextElideMode.ElideMiddle, 150)
+        self.elided_name = font_metrics.elidedText(self.name, Qt.TextElideMode.ElideMiddle, 150)
 
         # Set icon size and padding
         self.icon_size = 48
@@ -724,7 +791,6 @@ if __name__ == "__main__":
 
         # On Windows, get the wallpaper and set it as the background of the window
         if sys.platform == "win32":
-            from win32com.client import Dispatch
             shell = Dispatch("WScript.Shell")
             windows_wallpaper_path = os.path.normpath(shell.RegRead("HKEY_CURRENT_USER\\Control Panel\\Desktop\\Wallpaper")).replace("\\", "/")
             print("Windows wallpaper path:", windows_wallpaper_path)
@@ -732,7 +798,7 @@ if __name__ == "__main__":
             p = desktop.container.palette()
             p.setBrush(desktop.container.backgroundRole(), QBrush(QPixmap(windows_wallpaper_path).scaled(desktop.width(), desktop.height(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)))
             desktop.container.setPalette(p)
-
-           
+          
         desktop.show()
+
     sys.exit(app.exec())
