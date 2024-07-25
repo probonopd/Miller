@@ -6,9 +6,10 @@
 import sys
 import os
 import json
+import subprocess
 from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo
-from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QLinearGradient, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QFileIconProvider, QMenuBar, QHBoxLayout, QMessageBox
+from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QLinearGradient, QPainter, QPen, QBrush, QPixmap
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog
 
 class SpatialFiler(QWidget):
 
@@ -368,9 +369,12 @@ class SpatialFiler(QWidget):
             for item in self.files:
                 if item.name != app.desktop_settings_file:
                     settings["items"].append({"name": item.name, "x": item.pos().x(), "y": item.pos().y()})
-            with open(settings_file, "w") as file:
-                json.dump(settings, file, indent=4)
-                print(f"Written settings to {settings_file}")
+            try:
+                with open(settings_file, "w") as file:
+                    json.dump(settings, file, indent=4)
+                    print(f"Written settings to {settings_file}")
+            except Exception as e:
+                print(f"Error writing settings file: {e}")
         else:
             print(f"Cannot write to {settings_file}")
         event.accept()
@@ -602,7 +606,67 @@ class Item(QWidget):
         # Double-click event to open the item
         self.mouseDoubleClickEvent = self.open
 
+        # Add a context menu to the item
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+
+    def show_context_menu(self, pos):
+        context_menu = QMenu(self)
+        self.open_action = QAction("Open", self)
+        self.open_action.triggered.connect(self.open)
+        context_menu.addAction(self.open_action)
+        context_menu.addSeparator()
+        self.get_info_action = QAction("Get Info", self)
+        self.get_info_action.triggered.connect(self.get_info)
+        context_menu.addAction(self.get_info_action)
+        context_menu.addSeparator()
+        self.cut_action = QAction("Cut", self)
+        self.cut_action.setDisabled(True)
+        context_menu.addAction(self.cut_action)
+        self.copy_action = QAction("Copy", self)
+        self.copy_action.setDisabled(True)
+        context_menu.addAction(self.copy_action)
+        self.paste_action = QAction("Paste", self)
+        self.paste_action.setDisabled(True)
+        context_menu.addAction(self.paste_action)
+        self.trash_action = QAction("Move to Trash", self)
+        self.trash_action.setDisabled(True)
+        context_menu.addAction(self.trash_action)
+        context_menu.exec(self.mapToGlobal(pos))
+
+    def get_info(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Information")
+
+        layout = QGridLayout(dialog)
+        dialog.setLayout(layout)
+        
+        properties = ["Name", "Kind", "Size", "Location", "Created", "Modified", "Last opened"]
+        file_info = QFileInfo(self.path)
+        values = [""] * len(properties)
+        values[0] = file_info.fileName()
+        values[1] = "Folder" if file_info.isDir() else "Document"
+        values[2] = "N/A" if file_info.isDir() else str(file_info.size()) + " bytes"
+        values[3] = file_info.absolutePath()
+        try:
+            values[4] = file_info.birthTime().toString()
+        except:
+            values[4] = "N/A"
+        values[5] = file_info.lastModified().toString()
+        values[6] = file_info.lastRead().toString()
+        
+        for i, property in enumerate(properties):
+            label = QLabel(property, dialog)
+            label.setStyleSheet("font-weight: bold; text-align: right;")
+            label.setAlignment(Qt.AlignmentFlag.AlignRight)
+            value = QLabel(values[i], dialog)
+            layout.addWidget(label, i, 0)  # Add label to left column
+            layout.addWidget(value, i, 1)  # Add value to right column
+        
+        dialog.exec()
+
     def open(self, event):
+        self.path = os.path.realpath(self.path)
         if self.is_directory:
             existing_window = app.open_windows.get(self.path)
             if existing_window:
@@ -614,10 +678,25 @@ class Item(QWidget):
                 app.open_windows[self.path] = new_window
         else:
             if sys.platform == "win32":
-                try:
-                    os.startfile(self.path)
-                except Exception as e:
-                    print(f"Error opening file: {e}")
+                if self.path.endswith(".AppImage"):
+                    try:
+                        # Run wsl and pass in the Linux path to the AppImage; tested on Windows 11
+                        drive_letter = self.path[0]
+                        linux_path = self.path.replace("\\", "/")
+                        linux_path = linux_path.replace(drive_letter + ":", "/mnt/" + drive_letter.lower())
+                        linux_path = linux_path.replace("(", "").replace(")", "")
+                        print(f"Launching AppImage with WSL: {linux_path}")
+                        # sudo apt-get -y install fuse libfuse2
+                        command = ["wsl", linux_path]
+                        subprocess.Popen(command)
+                        # TODO: Show any error messages coming from the subprocess in a QMessageBox.critical if possible
+                    except Exception as e:
+                        print(f"Error opening AppImage: {e}")
+                else:
+                    try:
+                        os.startfile(self.path)
+                    except Exception as e:
+                        print(f"Error opening file: {e}")
             else:
                 os.system(f"xdg-open \"{self.path}\"")
 
@@ -636,17 +715,24 @@ if __name__ == "__main__":
         # If .DS_Spatial does not exist, align the items like on the desktop
         if not os.path.exists(os.path.join(QDir.homePath(), app.desktop_settings_file)):
             desktop.align_items_desktop()
-        desktop.container.setStyleSheet("background-color: lightgrey;")
+        # Change the background color of the container
+        p = desktop.container.palette()
+        p.setColor(desktop.container.backgroundRole(), QColor(Qt.GlobalColor.lightGray))
+        desktop.container.setPalette(p)
+
         desktop.setWindowFlag(Qt.WindowType.WindowStaysOnBottomHint)
-        """
+
         # On Windows, get the wallpaper and set it as the background of the window
         if sys.platform == "win32":
             from win32com.client import Dispatch
             shell = Dispatch("WScript.Shell")
             windows_wallpaper_path = os.path.normpath(shell.RegRead("HKEY_CURRENT_USER\\Control Panel\\Desktop\\Wallpaper")).replace("\\", "/")
             print("Windows wallpaper path:", windows_wallpaper_path)
-            # Set stylesheet to set the background image but not stretch it
-            # desktop.setStyleSheet(f"background-image: url('{windows_wallpaper_path}'); background-repeat: no-repeat; background-position: center center; background-attachment  fixed;")
-        """            
+            # Set the background image of the window
+            p = desktop.container.palette()
+            p.setBrush(desktop.container.backgroundRole(), QBrush(QPixmap(windows_wallpaper_path).scaled(desktop.width(), desktop.height(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)))
+            desktop.container.setPalette(p)
+
+           
         desktop.show()
     sys.exit(app.exec())
