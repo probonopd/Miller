@@ -15,6 +15,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
+          pip install pyinstaller
 
       - name: Build executable
         run: |
