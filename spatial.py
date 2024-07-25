@@ -10,7 +10,7 @@ import subprocess
 import math
 
 from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo
-from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QLinearGradient, QPainter, QPen, QBrush, QPixmap
+from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog
 
 if sys.platform == "win32":
@@ -142,6 +142,22 @@ class SpatialFiler(QWidget):
             action.setEnabled(False)
         # Go Menu
         go_menu = self.menu_bar.addMenu("Go")
+        parent = os.path.dirname(self.path)
+        up_action = QAction("Up", self)
+        up_action.setShortcut("Ctrl+Up")
+        # up_action.setShortcuts([QKeySequence("Shift+Ctrl+Up"), QKeySequence("Ctrl+Up")]) # Second shortcut
+        up_action.triggered.connect(self.open_parent)
+        up_and_close_current_action = QAction("Up and Close Current", self)
+        up_and_close_current_action.setShortcut("Shift+Ctrl+Up")
+        up_and_close_current_action.triggered.connect(self.open_parent_and_close_current)
+        if not os.path.exists(parent) or os.path.normpath(self.path) == os.path.normpath(QDir.rootPath()):
+            # or (os.path.normpath(os.path.dirname(self.path)) == os.path.normpath(QDir.homePath()) and os.path.basename(self.path) == "Desktop") \
+            # or (os.path.normpath(os.path.dirname(os.path.dirname(self.path))) == os.path.normpath(QDir.homePath()) and os.path.basename(os.path.dirname(self.path)) == "Desktop"):
+            up_action.setDisabled(True)
+            up_and_close_current_action.setDisabled(True)
+        go_menu.addAction(up_action)
+        go_menu.addAction(up_and_close_current_action)
+        go_menu.addSeparator()
         home_action = QAction("Home", self)
         home_action.triggered.connect(self.open_home)
         go_menu.addAction(home_action)
@@ -171,12 +187,31 @@ class SpatialFiler(QWidget):
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
 
+    def open_parent(self):
+        # TODO: Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
+        parent = os.path.dirname(self.path)
+        if os.path.exists(parent):
+            i = Item(parent, True, QPoint(0, 0), self.container)
+            i.open(None)
+            i = None
+
+    def open_parent_and_close_current(self):
+        # TODO: Remmove once it is not needed anymore
+        parent = os.path.dirname(self.path)
+        if os.path.exists(parent):
+            i = Item(parent, True, QPoint(0, 0), self.container)
+            i.open(None)
+            i = None
+            self.close()
+
     def open_home(self):
+        # TODO: Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
         i = Item(QDir.homePath(), True, QPoint(0, 0), self.container)
         i.open(None)
         i = None
 
     def open_start_menu_folder(self):
+        # TODO: Detect whether the Shift key is pressed; if yes, close the current window if it is not the fullscreen desktop window
         self.start_menu_folder = os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'Start Menu', 'Programs')
         i = Item(self.start_menu_folder, True, QPoint(0, 0), self.container)
         i.open(None)
@@ -190,7 +225,7 @@ class SpatialFiler(QWidget):
             # Add every disk in the system
             print("Adding disks")
             for disk in QDir.drives():
-                if not any(item.name == disk.path() for item in self.files):
+                if not any(item.name == robust_filename(disk.path()) for item in self.files):
                     # The name of the disk is the first part of the path, e.g. "C:" or "D:"
                     disk_name = disk.path()
                     print("Adding disk", disk_name)
