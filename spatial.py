@@ -19,12 +19,13 @@ if sys.platform == "win32":
 
 class SpatialFiler(QWidget):
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, is_desktop_window=False):
         super().__init__()
         
         self.path = path if path else QDir.homePath()
         self.setWindowTitle(self.path)
         self.setGeometry(100, 100, 800, 600)
+        self.is_desktop_window = is_desktop_window
 
         self.setAcceptDrops(True)
 
@@ -117,8 +118,12 @@ class SpatialFiler(QWidget):
         self.open_action.setShortcut("Ctrl+O")
         self.open_action.triggered.connect(self.open_selected_items)
         self.open_action.setEnabled(False)
-        self.close_action = QAction("Close", self)
-        self.close_action.setShortcut("Ctrl+W")
+        if self.is_desktop_window == True:
+            self.close_action = QAction("Quit", self)
+            self.close_action.setShortcut("Ctrl+Q")
+        else:
+            self.close_action = QAction("Close", self)
+            self.close_action.setShortcut("Ctrl+W")
         self.close_action.triggered.connect(self.close)
         file_menu.addAction(self.open_action)
         file_menu.addSeparator()
@@ -154,6 +159,8 @@ class SpatialFiler(QWidget):
             # or (os.path.normpath(os.path.dirname(self.path)) == os.path.normpath(QDir.homePath()) and os.path.basename(self.path) == "Desktop") \
             # or (os.path.normpath(os.path.dirname(os.path.dirname(self.path))) == os.path.normpath(QDir.homePath()) and os.path.basename(os.path.dirname(self.path)) == "Desktop"):
             up_action.setDisabled(True)
+            up_and_close_current_action.setDisabled(True)
+        if self.is_desktop_window == True:
             up_and_close_current_action.setDisabled(True)
         go_menu.addAction(up_action)
         go_menu.addAction(up_and_close_current_action)
@@ -810,7 +817,7 @@ if __name__ == "__main__":
     
     for screen in QApplication.screens():
         # TODO: Possibly only create the desktop window on the primary screen and just show a background image on the other screens
-        desktop = SpatialFiler(os.path.normpath(QDir.homePath() + "/Desktop"))
+        desktop = SpatialFiler(os.path.normpath(QDir.homePath() + "/Desktop"), is_desktop_window = True)
         desktop.move(screen.geometry().x(), screen.geometry().y())
         desktop.resize(screen.geometry().width(), screen.geometry().height())
         desktop.setWindowFlags(Qt.WindowType.FramelessWindowHint)
