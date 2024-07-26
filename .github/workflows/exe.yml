@@ -19,8 +19,8 @@ jobs:
 
       - name: Compile Cython code
         run: |
-          cython --binding=static --cplus --embed spatial.pyx
-          gcc -shared -O2 `cython -vD spatial.pyx` -o spatial.pyd
+          cython spatial.pyx
+          gcc -shared -O2 spatial.c -o spatial.pyd
 
       - name: Build executable
         run: |
