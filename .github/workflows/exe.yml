@@ -19,7 +19,7 @@ jobs:
 
       - name: Compile Cython code
         run: |
-          cython spatial.pyx
+          cython spatial.py
           gcc -shared -O2 spatial.c -o spatial.pyd
 
       - name: Build executable
