@@ -10,7 +10,7 @@ import subprocess
 import math
 
 from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo
-from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence
+from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence, QFont
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog
 
 if sys.platform == "win32":
@@ -26,6 +26,11 @@ class SpatialFiler(QWidget):
         self.setWindowTitle(self.path)
         self.setGeometry(100, 100, 800, 600)
         self.is_desktop_window = is_desktop_window
+
+        # Set folder icon on window; unfortunately Windows doesn't use this for the taskbar icon
+        icon_provider = QFileIconProvider()
+        icon = icon_provider.icon(QFileInfo(self.path))
+        self.setWindowIcon(icon)
 
         self.setAcceptDrops(True)
 
@@ -71,10 +76,11 @@ class SpatialFiler(QWidget):
         self.init_menu_bar()
 
         # Initialize other components
-        self.files = []
-        self.vertical_spacing = 5
-        self.line_height = 80
-        self.horizontal_spacing = 10
+        self.items = []
+        self.vertical_spacing = 0
+        self.line_height = app.icon_size + QFontMetrics(self.font()).height() + 16
+        self.horizontal_spacing = 0
+        self.item_width_for_positioning = 150
         self.start_x = 0
         self.start_y = 0
         self.populate_items()
@@ -93,14 +99,14 @@ class SpatialFiler(QWidget):
     def directory_changed(self, path):
         # Remove items from the window that are not in the directory anymore
         items_to_remove = []
-        for item in self.files:
+        for item in self.items:
             if not os.path.exists(item.path):
                 items_to_remove.append(item)
         for item in items_to_remove:
             item.hide()
             if self.container.layout():
                 self.container.layout().removeWidget(item)
-            self.files.remove(item)
+            self.items.remove(item)
             item.deleteLater()
         self.populate_items()  # This adds new items to the window
         self.update_container_size()
@@ -191,6 +197,11 @@ class SpatialFiler(QWidget):
             align_items_circle_action = QAction("Align Items in Circle", self)
             align_items_circle_action.triggered.connect(self.align_items_circle)
             view_menu.addAction(align_items_circle_action)
+            view_menu.addSeparator()
+            adjust_window_size_action = QAction("Adjust Window Size", self)
+            adjust_window_size_action.triggered.connect(self.adjust_window_size)
+            view_menu.addAction(adjust_window_size_action)
+        
         # Help Menu
         help_menu = self.menu_bar.addMenu("Help")
         about_action = QAction("About", self)
@@ -227,6 +238,12 @@ class SpatialFiler(QWidget):
         i.open(None)
         i = None
 
+    def adjust_window_size(self):
+        # Adjust the window size to fit the items
+        max_x = max(item.x() + item.width() for item in self.items) + 30
+        max_y = max(item.y() + item.height() for item in self.items) + 40
+        self.resize(max_x, max_y)
+
     def populate_items(self):
         print(f"Populating items for path: {self.path}")
 
@@ -235,14 +252,14 @@ class SpatialFiler(QWidget):
             # Add every disk in the system
             print("Adding disks")
             for disk in QDir.drives():
-                if not any(item.name == robust_filename(disk.path()) for item in self.files):
+                if not any(item.name == robust_filename(disk.path()) for item in self.items):
                     # The name of the disk is the first part of the path, e.g. "C:" or "D:"
                     disk_name = disk.path()
                     print("Adding disk", disk_name)
                     self.add_file(disk.path(), True)
 
             # Add the Trash item
-            if not any(item.name == app.trash_name for item in self.files):
+            if not any(item.name == app.trash_name for item in self.items):
                 print("Adding Trash item")
                 trash = os.path.join(self.path, app.trash_name)
                 self.add_file(trash, True)
@@ -254,7 +271,7 @@ class SpatialFiler(QWidget):
             else:
                 for entry in entries:
                     # Skip if already in the list
-                    if any(item.name == entry for item in self.files):
+                    if any(item.name == entry for item in self.items):
                         continue
                     # .DS_Spatial is a special file that we don't want to show
                     if entry == app.desktop_settings_file:
@@ -271,11 +288,11 @@ class SpatialFiler(QWidget):
             print(f"Error accessing directory: {e}")
 
     def calculate_max_width(self):
-        return max(item.width() for item in self.files) if self.files else 150
+        return max(item.width() for item in self.items) if self.items else 150
 
     def add_file(self, path, is_directory):
-        position = QPoint(self.start_x + len(self.files) % 5 * (self.calculate_max_width() + self.horizontal_spacing), 
-                          self.start_y + len(self.files) // 5 * (self.line_height + self.vertical_spacing))
+        position = QPoint(self.start_x + len(self.items) % 5 * (self.calculate_max_width() + self.horizontal_spacing), 
+                          self.start_y + len(self.items) // 5 * (self.line_height + self.vertical_spacing))
         # Check whether a position is provided in the .DS_Spatial file; if yes, use it
         settings_file = os.path.join(self.path, app.desktop_settings_file)
         if os.path.exists(settings_file):
@@ -291,42 +308,57 @@ class SpatialFiler(QWidget):
         item = Item(path, is_directory, position, self.container)
         item.move(position)
         item.show()
-        self.files.append(item)
+        self.items.append(item)
         self.update_container_size()
 
     def update_container_size(self):
-        max_x = max(item.x() + item.width() for item in self.files) + 10
-        max_y = max(item.y() + item.height() for item in self.files) + 10
+        max_x = max(item.x() + item.width() for item in self.items) + 10
+        max_y = max(item.y() + item.height() for item in self.items) + 10
         self.container.setMinimumSize(QSize(max_x, max_y))
 
     def mousePressEvent(self, event):
+
+        for item in self.items:
+            item.text_label_deactivate()
+
         scroll_pos = QPoint(self.scroll_area.horizontalScrollBar().value(),
                             self.scroll_area.verticalScrollBar().value())
         adjusted_pos = event.pos() + scroll_pos
 
+        print("Mouse coordinates adjusted for scroll position:", adjusted_pos.x(), adjusted_pos.y())
+
         if event.button() == Qt.MouseButton.LeftButton:
-            clicked_widget = None
-            for item in self.files:
+            clicked_item = None
+            for item in self.items:
                 if (item.x() <= adjusted_pos.x() <= item.x() + item.width()) and \
                 (item.y() <= adjusted_pos.y() <= item.y() + item.height()):
-                    clicked_widget = item
-                    break
-            
-            if clicked_widget:
+                    print(f"Item: {item.name}")
+                    # Find out if the click was on the icon or not, 
+                    # assuming the icon at the center bottom of the item rectangle;
+                    # TODO: Find a better way to determine if the click was on the icon independent of the geometry of the item
+                    icon_center_x = item.x() + item.width() / 2
+                    icon_center_y = item.y() + item.icon_size / 2
+                    if (icon_center_x - item.icon_size / 2 <= adjusted_pos.x() <= icon_center_x + item.icon_size / 2) and \
+                    (icon_center_y <= adjusted_pos.y() <= icon_center_y + item.icon_size):
+                        # Clicked on the icon
+                        clicked_item = item
+                        break
+
+            if clicked_item:
                 if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
-                    if clicked_widget in self.selected_files:
-                        self.selected_files.remove(clicked_widget)
-                        clicked_widget.setStyleSheet("border: 1px dotted lightgrey; background-color: transparent;")
+                    if clicked_item in self.selected_files:
+                        self.selected_files.remove(clicked_item)
+                        clicked_item.icon_label.setStyleSheet("border: 0px; background-color: transparent;")
                     else:
-                        self.selected_files.append(clicked_widget)
-                        clicked_widget.setStyleSheet("border: 1px dotted blue; background-color: lightblue;")
+                        self.selected_files.append(clicked_item)
+                        clicked_item.icon_label.setStyleSheet("background-color: lightblue;")
                 else:
-                    if clicked_widget not in self.selected_files:
-                        self.selected_files = [clicked_widget]
-                        for f in self.files:
-                            if f != clicked_widget:
-                                f.setStyleSheet("border: 1px dotted lightgrey; background-color: transparent;")
-                        clicked_widget.setStyleSheet("border: 1px dotted blue; background-color: lightblue;")
+                    if clicked_item not in self.selected_files:
+                        self.selected_files = [clicked_item]
+                        for f in self.items:
+                            if f != clicked_item:
+                                f.icon_label.setStyleSheet("border: 0px; background-color: transparent;")
+                        clicked_item.icon_label.setStyleSheet("background-color: lightblue;")
                     
                     self.dragging = True
                     self.last_pos = adjusted_pos
@@ -340,15 +372,15 @@ class SpatialFiler(QWidget):
                     drag.setPixmap(self.selected_files[0].icon_label.pixmap())
                     # TODO: Make it so that the icon doesn't jump to be at the top left corner of the mouse cursor
                     # FIXME: Instead of hardcoding the hot spot to be half the icon size, it should be the position of the mouse cursor relative to the item
-                    drag.setHotSpot(QPoint(int(48/2), int(48/2)))
+                    drag.setHotSpot(QPoint(int(app.icon_size/2), int(app.icon_size/2)))
                     drag.exec()
             else:
                 self.is_selecting = True
                 self.selection_rect = QRect(adjusted_pos.x(), adjusted_pos.y(), 0, 0)
                 self.update()
                 self.selected_files = []
-                for item in self.files:
-                    item.setStyleSheet("border: 1px dotted lightgrey; background-color: transparent;")
+                for item in self.items:
+                    item.icon_label.setStyleSheet("border: 0px; background-color: transparent;")
                 self.update_menu_state()
 
     def mouseMoveEvent(self, event):
@@ -370,7 +402,7 @@ class SpatialFiler(QWidget):
             drag.setPixmap(self.selected_files[0].icon_label.pixmap())
             # TODO: Make it so that the icon doesn't jump to be at the top left corner of the mouse cursor
             # FIXME: Instead of hardcoding the hot spot to be half the icon size, it should be the position of the mouse cursor relative to the item
-            drag.setHotSpot(QPoint(int(48/2), int(48/2)))
+            drag.setHotSpot(QPoint(int(app.icon_size/2), int(app.icon_size/2)))
             drag.exec()
 
         elif self.is_selecting:
@@ -379,18 +411,18 @@ class SpatialFiler(QWidget):
                                         abs(adjusted_pos.x() - self.selection_rect.x()),
                                         abs(adjusted_pos.y() - self.selection_rect.y()))
             self.update()
-            for item in self.files:
+            for item in self.items:
                 if (self.selection_rect.x() <= item.x() + item.width() and
                     item.x() <= self.selection_rect.x() + self.selection_rect.width() and
                     self.selection_rect.y() <= item.y() + item.height() and
                     item.y() <= self.selection_rect.y() + self.selection_rect.height()):
                     if item not in self.selected_files:
                         self.selected_files.append(item)
-                        item.setStyleSheet("border: 1px dotted blue; background-color: lightblue;")
+                        item.icon_label.setStyleSheet("border: 1px dotted blue; background-color: lightblue;")
                 else:
                     if item in self.selected_files:
                         self.selected_files.remove(item)
-                        item.setStyleSheet("border: 1px dotted lightgrey; background-color: transparent;")
+                        item.icon_label.setStyleSheet("border: 1px dotted lightgrey; background-color: transparent;")
 
     def mouseReleaseEvent(self, event):
         if self.dragging:
@@ -431,7 +463,7 @@ class SpatialFiler(QWidget):
                     break
             settings["size"] = {"width": self.width(), "height": self.height()}
             settings["items"] = []
-            for item in self.files:
+            for item in self.items:
                 if item.name != app.desktop_settings_file:
                     settings["items"].append({"name": robust_filename(item.path), "x": item.pos().x(), "y": item.pos().y()})
             try:
@@ -470,7 +502,7 @@ class SpatialFiler(QWidget):
                 # Check if the file is already in the directory; if yes, just move its position
                 if os.path.normpath(os.path.dirname(path)) == os.path.normpath(self.path):
                     print("File was moved within the same directory")
-                    for item in self.files:
+                    for item in self.items:
                         if os.path.normpath(item.path) == os.path.normpath(path):
                             drop_position = event.position()
                             print("Moving to coordinates", drop_position.x(), drop_position.y())
@@ -483,12 +515,12 @@ class SpatialFiler(QWidget):
                             drop_position = QPoint(int(drop_position.x() - 20), int(drop_position.y() - pixmap_height))
                             # Half an icon height to the top and to the left
                             # FIXME: Instead of hardcoding the hot spot to be half the icon size, it should be corrected based on the position of the mouse cursor relative to the item at the time of the drag event
-                            drop_position = QPoint(drop_position.x() - int(48/2), drop_position.y() - int(48/2))
+                            drop_position = QPoint(drop_position.x() - int(app.icon_size/2), drop_position.y() - int(app.icon_size/2))
                             # Take into consideration the scroll position
                             drop_position += QPoint(self.scroll_area.horizontalScrollBar().value(), self.scroll_area.verticalScrollBar().value())
                             # If the Alt modifier key is pressed, move to something that is a multiple of 24 - this is kind of a grid
                             if event.modifiers() == Qt.KeyboardModifier.AltModifier:
-                                drop_position = QPoint(int(drop_position.x() / 48) * 48, int(drop_position.y() / 48) * 48)
+                                drop_position = QPoint(int(drop_position.x() / app.icon_size) * app.icon_size, int(drop_position.y() / app.icon_size) * app.icon_size)
                             item.move(drop_position)
                             break
                 else:
@@ -498,26 +530,22 @@ class SpatialFiler(QWidget):
             event.ignore()
 
     def align_items(self):
-        width =  200
-        num_columns = self.width() // width
-        horizontal_spacing = 10
-        vertical_spacing = 5
-        line_height = 70
+        num_columns = self.width() // self.item_width_for_positioning
         current_column = 0
         current_row = 0
 
         # Iterate over the items
-        for item in self.files:
+        for item in self.items:
             # Calculate the new position of the item
-            new_x = current_column * (width + horizontal_spacing)
-            new_y = current_row * (line_height + vertical_spacing)
+            new_x = current_column * (self.item_width_for_positioning + self.horizontal_spacing)
+            new_y = current_row * (self.line_height + self.vertical_spacing)
 
             # If the item's text is wider than the item's icon, need to adjust the x position by moving it to the left
             if item.text_label.width() > item.icon_label.width():
                 new_x -= int((item.text_label.width() - item.icon_label.width()) / 2)
 
             # Space on top and at the left of the window, at the top 10 pixels, at the left half of the item width
-            new_x += int(width/4)
+            new_x += int(self.item_width_for_positioning/4)
             new_y += 10
 
             # Move the item to the new position
@@ -535,33 +563,30 @@ class SpatialFiler(QWidget):
         self.update_container_size()
 
     def align_items_staggered(self):
-        width =  200
-        num_columns = self.width() // width
-        horizontal_spacing = 10
-        vertical_spacing = 5
-        line_height = 40
+        num_columns = self.width() // self.item_width_for_positioning
+        line_height = int(self.line_height - 0.5 * app.icon_size)
         current_column = 0
         current_row = 0
 
         # Sort the items by name
-        self.files.sort(key=lambda x: x.name, reverse=False)
+        self.items.sort(key=lambda x: x.name, reverse=False)
 
         # Iterate over the items
-        for i, item in enumerate(self.files):
+        for i, item in enumerate(self.items):
             # Calculate the new position of the item
             if current_row % 2 == 0:  # Even row
-                new_x = current_column * (width + horizontal_spacing)
+                new_x = current_column * (self.item_width_for_positioning + self.horizontal_spacing)
             else:  # Odd row
-                new_x = (current_column + 0.5) * (width + horizontal_spacing)
+                new_x = (current_column + 0.5) * (self.item_width_for_positioning + self.horizontal_spacing)
 
-            new_y = current_row * (line_height + vertical_spacing)
+            new_y = current_row * (line_height + self.vertical_spacing)
 
             # If the item's text is wider than the item's icon, need to adjust the x position by moving it to the left
             if item.text_label.width() > item.icon_label.width():
                 new_x -= int((item.text_label.width() - item.icon_label.width()) / 2)
 
             # Space on top and at the left of the window, at the top 10 pixels, at the left half of the item width
-            new_x += int(width/4)
+            new_x += int(self.item_width_for_positioning/4)
             new_y += 10
 
             # Move the item to the new position
@@ -583,29 +608,25 @@ class SpatialFiler(QWidget):
         self.update_container_size()
 
     def align_items_desktop(self):
-        horizontal_spacing = 10
-        vertical_spacing = 5
-        width = 200
-        line_height = 70
-        num_rows = (self.height() // line_height ) - 2
+        num_rows = (self.height() // self.line_height ) - 1
         current_column = 0
         current_row = 0
 
-        start_x = self.width() - width - 10
+        start_x = self.width() - self.item_width_for_positioning
         start_y = 10
 
-        for item in self.files:
+        for item in self.items:
 
             # Calculate the new position of the item
-            new_x = start_x - current_column * (width + horizontal_spacing)
-            new_y = start_y + current_row * (line_height + vertical_spacing)
+            new_x = start_x - current_column * (self.item_width_for_positioning + self.horizontal_spacing)
+            new_y = start_y + current_row * (self.line_height + self.vertical_spacing)
 
             # If the item's text is wider than the item's icon, need to adjust the x position by moving it to the left
             if item.text_label.width() > item.icon_label.width():
                 new_x -= int((item.text_label.width() - item.icon_label.width()) / 2)
 
             # Space on top and at the left of the window, at the top 10 pixels, at the left half of the item width
-            new_x += int(width/4)
+            new_x += int(self.item_width_for_positioning/4)
             new_y += 10
 
             # Move the item to the new position
@@ -620,19 +641,16 @@ class SpatialFiler(QWidget):
                 current_column += 1
 
     def align_items_circle(self):
-        width = 200
-        horizontal_spacing = 10
-        vertical_spacing = 5
-        radius = self.width() // 2 - horizontal_spacing - width // 2
+        radius = self.width() // 2 - self.horizontal_spacing - self.item_width_for_positioning // 2
 
         # Calculate the center of the circle
-        circle_center_x = radius + width // 2
-        circle_center_y = radius + vertical_spacing
+        circle_center_x = radius + self.item_width_for_positioning // 2
+        circle_center_y = radius + self.vertical_spacing
 
         # Iterate over the items
-        for i, item in enumerate(self.files):
+        for i, item in enumerate(self.items):
             # Calculate the new position of the item
-            angle = i * 2 * math.pi / len(self.files)
+            angle = i * 2 * math.pi / len(self.items)
             new_x = circle_center_x + radius * math.cos(angle)
             new_y = circle_center_y + radius * math.sin(angle)
 
@@ -672,22 +690,27 @@ class Item(QWidget):
 
         icon_provider = QFileIconProvider()
         if self.path == os.path.normpath(os.path.join(QDir.homePath(), "Desktop", app.trash_name)):
-            icon = icon_provider.icon(QFileIconProvider.IconType.Trashcan).pixmap(48, 48)
+            icon = icon_provider.icon(QFileIconProvider.IconType.Trashcan).pixmap(app.icon_size, app.icon_size)
         else:
-            icon = icon_provider.icon(QFileInfo(self.path)).pixmap(48, 48)
+            icon = icon_provider.icon(QFileInfo(self.path)).pixmap(app.icon_size, app.icon_size)
 
         # Maximum 150 pixels wide, elide the text in the middle
         font_metrics = QFontMetrics(self.font())
         self.elided_name = font_metrics.elidedText(self.name, Qt.TextElideMode.ElideMiddle, 150)
 
+        # For screenshotting: Replace each letter in the elided name with a random letter; preserve the length. Preserve the case of the letters.
+        # import random
+        # import string
+        # self.elided_name = "".join(random.choice(string.ascii_letters) if c.isalpha() else c for c in self.elided_name)
+        # if len(self.elided_name) > 12:
+        #     self.elided_name = self.elided_name[5:]
+
         # Set icon size and padding
-        self.icon_size = 48
+        self.icon_size = app.icon_size
         padding = 0  # Padding around icon and text
 
         # Calculate the text width
         text_width = font_metrics.horizontalAdvance(self.elided_name)
-
-        # Determine the widget width
         widget_width = max(self.icon_size, text_width) + padding * 2
 
         # Set the fixed size for the widget, including some padding above and below the content
@@ -709,7 +732,16 @@ class Item(QWidget):
         # Text label setup
         self.text_label = QLabel(self.elided_name, self)
         self.text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # FIXME: Increase width of the QLabel by 4 pixels while still having the QLabel centered in the box
+
+        font = QFont()
+        font.setPointSize(8)
+        self.text_label.setFont(font)
+
         self.layout.addWidget(self.text_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        # If text label is clicked, call on_label_clicked
+        self.text_label.mousePressEvent = self.on_label_clicked
 
         # Ensure the widget's size policy does not expand
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -720,6 +752,20 @@ class Item(QWidget):
         # Add a context menu to the item
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
+
+        self.text_label_deactivate()
+
+    def on_label_clicked(self, event):
+        # TODO: Deactivate the text labels of all other items; how to get to the other items?
+        self.text_label_activate()
+        
+    def text_label_activate(self):
+        if os.access(self.path, os.W_OK):
+            self.text_label.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
+            self.text_label.setStyleSheet("background-color: black; color: white;")
+
+    def text_label_deactivate(self):
+        self.text_label.setStyleSheet("background-color: rgba(255, 255, 255, 0.66); color: black;")
 
     def show_context_menu(self, pos):
         context_menu = QMenu(self)
@@ -778,6 +824,11 @@ class Item(QWidget):
 
     def open(self, event):
         self.path = os.path.realpath(self.path)
+
+        if not os.path.exists(self.path):
+            QMessageBox.critical(self, "Error", "%s does not exist." % self.path)
+            return
+
         if self.is_directory:
             existing_window = app.open_windows.get(self.path)
             if existing_window:
@@ -818,6 +869,7 @@ if __name__ == "__main__":
     app.open_windows = {}
     app.desktop_settings_file = ".DS_Spatial"
     app.trash_name = "Trash"
+    app.icon_size = 32
     
     for screen in QApplication.screens():
         # TODO: Possibly only create the desktop window on the primary screen and just show a background image on the other screens
