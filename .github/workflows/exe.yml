@@ -15,8 +15,13 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install cython pyinstaller python-dev
-
+          pip install cython pyinstaller
+          
+      - name: Install Python development package
+        # For "Python.h"
+        run: |
+          winget install --id Python.DevelopmentKit
+          
       - name: Compile Cython code
         run: |
           cython spatial.py
