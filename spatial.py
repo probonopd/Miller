@@ -59,6 +59,9 @@ class SpatialFiler(QWidget):
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.container = QWidget()
+        palette = self.container.palette()
+        palette.setColor(self.container.backgroundRole(), Qt.GlobalColor.white)
+        self.container.setPalette(palette)
         self.scroll_area.setWidget(self.container)
         self.layout.addWidget(self.scroll_area)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -810,6 +813,8 @@ class Item(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    if sys.platform == "win32":
+        app.setStyle("Fusion")
     app.open_windows = {}
     app.desktop_settings_file = ".DS_Spatial"
     app.trash_name = "Trash"
