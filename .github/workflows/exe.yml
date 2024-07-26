@@ -15,11 +15,21 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install cython pyinstaller
+          
+      - name: Install Python development package
+        # For "Python.h"
+        run: |
+          winget install --id Python.DevelopmentKit
+          
+      - name: Compile Cython code
+        run: |
+          cython spatial.py
+          gcc -shared -O2 spatial.c -o spatial.pyd
 
       - name: Build executable
         run: |
-          pyinstaller --windowed --onefile --name Spatial spatial.py
+          pyinstaller --windowed --onefile --name Spatial spatial.pyd
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
