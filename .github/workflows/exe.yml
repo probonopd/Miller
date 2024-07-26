@@ -15,7 +15,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          pip install cython pyinstaller
+          pip install cython pyinstaller python-dev
 
       - name: Compile Cython code
         run: |
