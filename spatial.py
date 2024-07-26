@@ -259,7 +259,6 @@ class SpatialFiler(QWidget):
                     # ~/Desktop is a special case; we don't want to show it
                     if self.path == QDir.homePath() and entry == "Desktop":
                         continue
-                    entry = os.path.splitext(entry)[0]
                     entry_path = os.path.join(self.path, entry)
                     is_directory = os.path.isdir(entry_path)
 
