@@ -868,8 +868,7 @@ class Item(QWidget):
 
     def show_context_menu(self, pos):
         # On Windows, use windows_context_menu.py
-        if sys.platform == "win32":
-            import windows_context_menu
+        if sys.platform == "win32" and self.path is not None:
             windows_context_menu.show_context_menu(self.path)
         else:
             context_menu = QMenu(self)
