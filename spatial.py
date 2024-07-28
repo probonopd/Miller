@@ -414,7 +414,8 @@ class SpatialFiler(QMainWindow):
                 (item.y() <= adjusted_pos.y() <= item.y() + item.height()):
                     # Find out if the click was on the icon or not, 
                     # assuming the icon at the center bottom of the item rectangle;
-                    # TODO: Find a better way to determine if the click was on the icon independent of the geometry of the item
+                    # TODO: Find a better way to determine if the click was on the icon independent of the geometry of the item,
+                    # similar to how we do it for right-clicks in the context menu
                     icon_center_x = item.x() + item.width() / 2
                     icon_center_y = item.y() + item.icon_size / 2
                     if (icon_center_x - item.icon_size / 2 <= adjusted_pos.x() <= icon_center_x + item.icon_size / 2) and \
@@ -867,6 +868,14 @@ class Item(QWidget):
         self.text_label.setStyleSheet("background-color: rgba(255, 255, 255, 0.66); color: black;")
 
     def show_context_menu(self, pos):
+        # Check if the click happened on the icon or the text label
+        if self.icon_label.geometry().contains(pos):
+            print("Clicked on the icon")
+        elif self.text_label.geometry().contains(pos):
+            print("Clicked on the text label")
+        else:
+            return
+
         # On Windows, use windows_context_menu.py
         if sys.platform == "win32" and self.path is not None:
             windows_context_menu.show_context_menu(self.path)
