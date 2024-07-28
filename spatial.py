@@ -11,13 +11,13 @@ import math
 import shutil
 
 from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo, QTimer
-from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence, QFont
+from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence, QFont, QIcon
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QMainWindow
 from PyQt6.QtWidgets import QStatusBar, QComboBox, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog
 
 if sys.platform == "win32":
     from win32com.client import Dispatch
-    import winreg
+    import windows_context_menu
 
 class SpatialFiler(QMainWindow):
 
@@ -749,7 +749,12 @@ class SpatialFiler(QMainWindow):
             item.move(int(new_x), int(new_y))
 
     def show_about(self):
-        QMessageBox.about(self, "About", "Spatial File Manager\n\nA simple file manager that uses a spatial interface.")
+        dialog = QMessageBox(self)
+        dialog.setIconPixmap(app.icon.pixmap(app.icon_size, app.icon_size))
+        dialog.setWindowTitle("About")
+        dialog.setText("Spatial File Manager\n\nA simple file manager that uses a spatial interface.")
+        dialog.exec()
+
 
 def robust_filename(path):
     # Use this instead of os.path.basename to avoid issues on Windows
@@ -862,28 +867,33 @@ class Item(QWidget):
         self.text_label.setStyleSheet("background-color: rgba(255, 255, 255, 0.66); color: black;")
 
     def show_context_menu(self, pos):
-        context_menu = QMenu(self)
-        self.open_action = QAction("Open", self)
-        self.open_action.triggered.connect(self.open)
-        context_menu.addAction(self.open_action)
-        context_menu.addSeparator()
-        self.get_info_action = QAction("Get Info", self)
-        self.get_info_action.triggered.connect(self.get_info)
-        context_menu.addAction(self.get_info_action)
-        context_menu.addSeparator()
-        self.cut_action = QAction("Cut", self)
-        self.cut_action.setDisabled(True)
-        context_menu.addAction(self.cut_action)
-        self.copy_action = QAction("Copy", self)
-        self.copy_action.setDisabled(True)
-        context_menu.addAction(self.copy_action)
-        self.paste_action = QAction("Paste", self)
-        self.paste_action.setDisabled(True)
-        context_menu.addAction(self.paste_action)
-        self.trash_action = QAction("Move to Trash", self)
-        self.trash_action.setDisabled(True)
-        context_menu.addAction(self.trash_action)
-        context_menu.exec(self.mapToGlobal(pos))
+        # On Windows, use windows_context_menu.py
+        if sys.platform == "win32":
+            import windows_context_menu
+            windows_context_menu.show_context_menu(self.path)
+        else:
+            context_menu = QMenu(self)
+            self.open_action = QAction("Open", self)
+            self.open_action.triggered.connect(self.open)
+            context_menu.addAction(self.open_action)
+            context_menu.addSeparator()
+            self.get_info_action = QAction("Get Info", self)
+            self.get_info_action.triggered.connect(self.get_info)
+            context_menu.addAction(self.get_info_action)
+            context_menu.addSeparator()
+            self.cut_action = QAction("Cut", self)
+            self.cut_action.setDisabled(True)
+            context_menu.addAction(self.cut_action)
+            self.copy_action = QAction("Copy", self)
+            self.copy_action.setDisabled(True)
+            context_menu.addAction(self.copy_action)
+            self.paste_action = QAction("Paste", self)
+            self.paste_action.setDisabled(True)
+            context_menu.addAction(self.paste_action)
+            self.trash_action = QAction("Move to Trash", self)
+            self.trash_action.setDisabled(True)
+            context_menu.addAction(self.trash_action)
+            context_menu.exec(self.mapToGlobal(pos))
 
     def get_info(self):
         dialog = QDialog(self)
@@ -976,6 +986,7 @@ if __name__ == "__main__":
     app.desktop_settings_file = ".DS_Spatial"
     app.trash_name = "Trash"
     app.icon_size = 32
+    app.icon = QFileIconProvider().icon(QFileIconProvider.IconType.Folder)
 
     # Output not only to the console but also to the GUI
     try:
@@ -986,8 +997,6 @@ if __name__ == "__main__":
         app.log_console = log_console.ConsoleOutputStream()
         sys.stdout = log_console.Tee(sys.stdout, app.log_console)
         sys.stderr = log_console.Tee(sys.stderr, app.log_console)
-
-
 
     for screen in QApplication.screens():
         # TODO: Possibly only create the desktop window on the primary screen and just show a background image on the other screens

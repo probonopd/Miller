@@ -1,6 +1,6 @@
 import sys
 import io
-from PyQt6.QtWidgets import QMainWindow, QPlainTextEdit
+from PyQt6.QtWidgets import QMainWindow, QPlainTextEdit, QMessageBox
 from PyQt6.QtGui import QAction
 
 """When running a GUI application, it is useful to have a log console
@@ -29,7 +29,7 @@ class ConsoleOutputStream(io.TextIOBase):
             lambda: self.log_console.verticalScrollBar().setValue(
                 self.log_console.verticalScrollBar().maximum()))
         # Should the application ever crash, show the log console
-        sys.excepthook = self.open_log_console
+        sys.excepthook = self.show_traceback
 
     def write(self, s):
         # Ignore whitespace
@@ -45,10 +45,22 @@ class ConsoleOutputStream(io.TextIOBase):
         log_console_action.triggered.connect(self.open_log_console)
         menu.addAction(log_console_action)
 
+    # Accept all parameters of sys.excepthook
     def open_log_console(self):
         if self.log_console_window.isVisible():
             return
         self.log_console_window.show()
+
+    def show_traceback(self, exc_type, exc_value, tb):
+        message_box = QMessageBox()
+        message_box.setIcon(QMessageBox.Icon.Critical)
+        message_box.setWindowTitle('Error')
+        message_box.setText(f'{exc_value}')
+        import traceback
+        traceback_str = ''.join(traceback.format_exception(exc_type, exc_value, tb))
+        message_box.setDetailedText(str(traceback_str))
+        message_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        message_box.exec()
 
 class Tee(object):
     def __init__(self, stream1, stream2):

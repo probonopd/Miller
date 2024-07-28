@@ -14,8 +14,9 @@ from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl, QMi
 from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QDrag, QCursor
 from PyQt6.QtWebEngineWidgets import QWebEngineView # pip install PyQt6-WebEngine
 import mimetypes
-from windows_integration import show_context_menu, show_properties
-import windows_file_operations
+if sys.platform == 'win32':
+    from windows_integration import show_context_menu, show_properties
+    import windows_file_operations
 import menus
 import toolbar
 import status_bar
