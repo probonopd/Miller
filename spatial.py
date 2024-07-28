@@ -8,16 +8,18 @@ import os
 import json
 import subprocess
 import math
+import shutil
 
-from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo
+from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo, QTimer
 from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence, QFont
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QMainWindow
+from PyQt6.QtWidgets import QStatusBar, QComboBox, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog
 
 if sys.platform == "win32":
     from win32com.client import Dispatch
     import winreg
 
-class SpatialFiler(QWidget):
+class SpatialFiler(QMainWindow):
 
     def __init__(self, path=None, is_desktop_window=False):
         super().__init__()
@@ -57,11 +59,11 @@ class SpatialFiler(QWidget):
         else:
             print(f"Settings file {settings_file} does not exist")
 
-        # Create the menu bar
-        self.menu_bar = QMenuBar(self)
-        self.layout = QVBoxLayout(self)
-        self.layout.setMenuBar(self.menu_bar)
-        self.scroll_area = QScrollArea(self)
+        # Create the central widget
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.layout = QVBoxLayout(self.central_widget)
+        self.scroll_area = QScrollArea(self.central_widget)
         self.scroll_area.setWidgetResizable(True)
         self.container = QWidget()
         palette = self.container.palette()
@@ -70,9 +72,11 @@ class SpatialFiler(QWidget):
         self.scroll_area.setWidget(self.container)
         self.layout.addWidget(self.scroll_area)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.setLayout(self.layout)
+        self.central_widget.setLayout(self.layout)
 
-        # Initialize menu bar items
+        # Create the menu bar
+        self.menu_bar = QMenuBar(self)
+        self.setMenuBar(self.menu_bar)
         self.init_menu_bar()
 
         # Initialize other components
@@ -90,13 +94,95 @@ class SpatialFiler(QWidget):
         self.selection_rect = QRect(0, 0, 0, 0)
         self.is_selecting = False
 
+        # Setup status bar with a dropdown if this is not the desktop window
+        if not self.is_desktop_window:
+            self.status_bar = QStatusBar()
+            self.setStatusBar(self.status_bar)
+            self.dropdown = QComboBox()
+            self.populate_dropdown()
+            self.dropdown.currentIndexChanged.connect(self.on_dropdown_changed)
+            self.status_bar.addPermanentWidget(self.dropdown)
+            self.status_bar.setSizeGripEnabled(False)
+            self.status_bar.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
+            # Add a 10px wide spacer to the right of the dropdown to leave some space for the resize handle
+            spacer_widget = QWidget()
+            spacer_widget.setFixedWidth(15)
+            spacer_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self.status_bar.addPermanentWidget(spacer_widget)
+            # Timer to update the status bar every 5 seconds
+            self.timer = QTimer()
+            self.timer.timeout.connect(self.update_status_bar)
+            self.timer.start(5000)
+            self.update_status_bar()
+
+
         # Watch for changes in the directory
         self.file_watcher = QFileSystemWatcher()
         self.file_watcher.directoryChanged.connect(self.directory_changed)
         self.file_watcher.fileChanged.connect(self.file_changed)
         self.file_watcher.addPath(self.path)
 
+    def populate_dropdown(self):
+        try:
+            path = self.path
+            if path.startswith("//") or path.startswith("\\\\"):
+                print("Skipping network path")  # TODO: Implement network path handling for Windows
+                self.dropdown.hide()
+                return
+            paths = []
+            while os.path.exists(path):
+                paths.append(path)
+                if os.path.normpath(path) == os.path.normpath(QDir.rootPath()):
+                    break
+                # On Windows, stop at the drive letter, otherwise we can get an infinite loop
+                if sys.platform == "win32" and len(path) == 3 and path[1] == ":":
+                    break
+                path = os.path.dirname(path)
+            paths.reverse()
+            for path in paths:
+                self.dropdown.addItem(robust_filename(path))
+                self.dropdown.setItemData(self.dropdown.count() - 1, path, Qt.ItemDataRole.UserRole)
+            self.dropdown.setCurrentIndex(self.dropdown.count() - 1)
+        except Exception as e:
+            print(f"Error populating dropdown: {e}")
+
+    def on_dropdown_changed(self):
+        selected_path = self.dropdown.currentData(Qt.ItemDataRole.UserRole)
+        print("Dropdown changed, selected path:", selected_path)
+        self.dropdown.blockSignals(True)
+        self.dropdown.setCurrentIndex(self.dropdown.count() - 1)
+        self.dropdown.blockSignals(False)
+        self.open(selected_path)
+
+    def update_status_bar(self):
+        path = self.path
+        item_count = len([f for f in QDir(path).entryList() if f not in [".", ".."]])
+        try:
+            free_space = shutil.disk_usage(path).free
+            if free_space < 1024:
+                free_space_str = f"{free_space} Bytes"
+            elif free_space < 1024 ** 2:
+                free_space_str = f"{free_space / 1024:.2f} KB"
+            elif free_space < 1024 ** 3:
+                free_space_str = f"{free_space / (1024 ** 2):.2f} MB"
+            else:
+                free_space_str = f"{free_space / (1024 ** 3):.2f} GB"
+        except Exception as e:
+            free_space_str = "Unknown"
+            print(f"Error getting free space: {e}")
+        self.status_bar.showMessage(f"{item_count} items, {free_space_str} available")
+
+
+    def open(self, path):
+        i = Item(path, True, QPoint(0, 0), self.container)
+        i.open(None)
+        i = None
+
     def directory_changed(self, path):
+        if not os.path.exists(self.path):
+            self.close()
+            return
+
         # Remove items from the window that are not in the directory anymore
         items_to_remove = []
         for item in self.items:
@@ -112,6 +198,9 @@ class SpatialFiler(QWidget):
         self.update_container_size()
 
     def file_changed(self, path):
+        if not os.path.exists(self.path):
+            self.close()
+            return
         self.update_container_size()
 
     def paintEvent(self, event):
@@ -212,41 +301,34 @@ class SpatialFiler(QWidget):
         # TODO: Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
         parent = os.path.dirname(self.path)
         if os.path.exists(parent):
-            i = Item(parent, True, QPoint(0, 0), self.container)
-            i.open(None)
-            i = None
+            self.open(parent)
 
     def open_parent_and_close_current(self):
         # TODO: Remmove once it is not needed anymore
         parent = os.path.dirname(self.path)
         if os.path.exists(parent):
-            i = Item(parent, True, QPoint(0, 0), self.container)
-            i.open(None)
-            i = None
+            self.open(parent)
             self.close()
 
     def open_home(self):
         # TODO: Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
-        i = Item(QDir.homePath(), True, QPoint(0, 0), self.container)
-        i.open(None)
-        i = None
+        self.open(QDir.homePath())
 
     def open_start_menu_folder(self):
         # TODO: Detect whether the Shift key is pressed; if yes, close the current window if it is not the fullscreen desktop window
         self.start_menu_folder = os.path.join(os.environ['APPDATA'], 'Microsoft', 'Windows', 'Start Menu', 'Programs')
-        i = Item(self.start_menu_folder, True, QPoint(0, 0), self.container)
-        i.open(None)
-        i = None
+        self.open(self.start_menu_folder)
 
     def adjust_window_size(self):
         # Adjust the window size to fit the items
         max_x = max(item.x() + item.width() for item in self.items) + 30
         max_y = max(item.y() + item.height() for item in self.items) + 40
+        # If the window has a status bar, add its height to the window height
+        if self.status_bar.isVisible():
+            max_y += self.status_bar.height()
         self.resize(max_x, max_y)
 
     def populate_items(self):
-        print(f"Populating items for path: {self.path}")
-
         if os.path.normpath(os.path.dirname(self.path)) == os.path.normpath(QDir.homePath()) and os.path.basename(self.path) == "Desktop":
 
             # Add every disk in the system
@@ -281,9 +363,8 @@ class SpatialFiler(QWidget):
                         continue
                     entry_path = os.path.join(self.path, entry)
                     is_directory = os.path.isdir(entry_path)
-
+                    # print(f"Adding item: {entry}")
                     self.add_file(entry_path, is_directory)
-
         except Exception as e:
             print(f"Error accessing directory: {e}")
 
@@ -325,14 +406,11 @@ class SpatialFiler(QWidget):
                             self.scroll_area.verticalScrollBar().value())
         adjusted_pos = event.pos() + scroll_pos
 
-        print("Mouse coordinates adjusted for scroll position:", adjusted_pos.x(), adjusted_pos.y())
-
         if event.button() == Qt.MouseButton.LeftButton:
             clicked_item = None
             for item in self.items:
                 if (item.x() <= adjusted_pos.x() <= item.x() + item.width()) and \
                 (item.y() <= adjusted_pos.y() <= item.y() + item.height()):
-                    print(f"Item: {item.name}")
                     # Find out if the click was on the icon or not, 
                     # assuming the icon at the center bottom of the item rectangle;
                     # TODO: Find a better way to determine if the click was on the icon independent of the geometry of the item
@@ -348,17 +426,17 @@ class SpatialFiler(QWidget):
                 if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
                     if clicked_item in self.selected_files:
                         self.selected_files.remove(clicked_item)
-                        clicked_item.icon_label.setStyleSheet("border: 0px; background-color: transparent;")
+                        clicked_item.deactivate()
                     else:
                         self.selected_files.append(clicked_item)
-                        clicked_item.icon_label.setStyleSheet("background-color: lightblue;")
+                        clicked_item.activate()
                 else:
                     if clicked_item not in self.selected_files:
                         self.selected_files = [clicked_item]
                         for f in self.items:
                             if f != clicked_item:
-                                f.icon_label.setStyleSheet("border: 0px; background-color: transparent;")
-                        clicked_item.icon_label.setStyleSheet("background-color: lightblue;")
+                                f.deactivate()
+                        clicked_item.activate()
                     
                     self.dragging = True
                     self.last_pos = adjusted_pos
@@ -380,7 +458,7 @@ class SpatialFiler(QWidget):
                 self.update()
                 self.selected_files = []
                 for item in self.items:
-                    item.icon_label.setStyleSheet("border: 0px; background-color: transparent;")
+                    item.deactivate()
                 self.update_menu_state()
 
     def mouseMoveEvent(self, event):
@@ -418,11 +496,11 @@ class SpatialFiler(QWidget):
                     item.y() <= self.selection_rect.y() + self.selection_rect.height()):
                     if item not in self.selected_files:
                         self.selected_files.append(item)
-                        item.icon_label.setStyleSheet("border: 1px dotted blue; background-color: lightblue;")
+                        item.activate()
                 else:
                     if item in self.selected_files:
                         self.selected_files.remove(item)
-                        item.icon_label.setStyleSheet("border: 1px dotted lightgrey; background-color: transparent;")
+                        item.deactivate()
 
     def mouseReleaseEvent(self, event):
         if self.dragging:
@@ -671,7 +749,7 @@ def robust_filename(path):
     if name == "":
         name = path
     # Remove the final slash if it ends with one
-    if name.endswith("/"):
+    if name.endswith("/") or name.endswith("\\"):
         name = name[:-1]
     return name
 
@@ -758,7 +836,13 @@ class Item(QWidget):
     def on_label_clicked(self, event):
         # TODO: Deactivate the text labels of all other items; how to get to the other items?
         self.text_label_activate()
-        
+    
+    def activate(self):
+        self.icon_label.setStyleSheet("background-color: lightblue;")
+
+    def deactivate(self):
+        self.icon_label.setStyleSheet("border: 0px; background-color: transparent;")
+
     def text_label_activate(self):
         if os.access(self.path, os.W_OK):
             self.text_label.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
@@ -823,6 +907,7 @@ class Item(QWidget):
         dialog.exec()
 
     def open(self, event):
+        print(f"Asked to open {self.path}")
         self.path = os.path.realpath(self.path)
 
         if not os.path.exists(self.path):
@@ -882,7 +967,7 @@ if __name__ == "__main__":
             desktop.align_items_desktop()
         # Change the background color of the container
         p = desktop.container.palette()
-        p.setColor(desktop.container.backgroundRole(), QColor(Qt.GlobalColor.lightGray))
+        p.setColor(desktop.container.backgroundRole(), QColor(Qt.GlobalColor.gray))
         desktop.container.setPalette(p)
 
         desktop.setWindowFlag(Qt.WindowType.WindowStaysOnBottomHint)
@@ -892,11 +977,14 @@ if __name__ == "__main__":
             shell = Dispatch("WScript.Shell")
             windows_wallpaper_path = os.path.normpath(shell.RegRead("HKEY_CURRENT_USER\\Control Panel\\Desktop\\Wallpaper")).replace("\\", "/")
             print("Windows wallpaper path:", windows_wallpaper_path)
-            # Set the background image of the window
-            p = desktop.container.palette()
-            p.setBrush(desktop.container.backgroundRole(), QBrush(QPixmap(windows_wallpaper_path).scaled(desktop.width(), desktop.height(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)))
-            desktop.container.setPalette(p)
-          
+            if windows_wallpaper_path != "." and os.path.exists(windows_wallpaper_path):
+                # Set the background image of the window
+                p = desktop.container.palette()
+                p.setBrush(desktop.container.backgroundRole(), QBrush(QPixmap(windows_wallpaper_path).scaled(desktop.width(), desktop.height(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)))
+                desktop.container.setPalette(p)
+            else:
+                print("No wallpaper found")
+
         desktop.show()
 
     sys.exit(app.exec())
