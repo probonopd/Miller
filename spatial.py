@@ -115,7 +115,6 @@ class SpatialFiler(QMainWindow):
             self.timer.start(5000)
             self.update_status_bar()
 
-
         # Watch for changes in the directory
         self.file_watcher = QFileSystemWatcher()
         self.file_watcher.directoryChanged.connect(self.directory_changed)
@@ -254,8 +253,6 @@ class SpatialFiler(QMainWindow):
         up_and_close_current_action.setShortcut("Shift+Ctrl+Up")
         up_and_close_current_action.triggered.connect(self.open_parent_and_close_current)
         if not os.path.exists(parent) or os.path.normpath(self.path) == os.path.normpath(QDir.rootPath()):
-            # or (os.path.normpath(os.path.dirname(self.path)) == os.path.normpath(QDir.homePath()) and os.path.basename(self.path) == "Desktop") \
-            # or (os.path.normpath(os.path.dirname(os.path.dirname(self.path))) == os.path.normpath(QDir.homePath()) and os.path.basename(os.path.dirname(self.path)) == "Desktop"):
             up_action.setDisabled(True)
             up_and_close_current_action.setDisabled(True)
         if self.is_desktop_window == True:
@@ -272,7 +269,7 @@ class SpatialFiler(QMainWindow):
             go_menu.addAction(start_menu_action)
         # View Menu
         view_menu = self.menu_bar.addMenu("View")
-        if os.path.normpath(os.path.dirname(self.path)) == os.path.normpath(QDir.homePath()) and os.path.basename(self.path) == "Desktop":
+        if os.path.normpath(self.path) == get_desktop_directory():
             align_items_desktop_action = QAction("Align Items", self)
             align_items_desktop_action.triggered.connect(self.align_items_desktop)
             view_menu.addAction(align_items_desktop_action)
@@ -293,9 +290,13 @@ class SpatialFiler(QMainWindow):
         
         # Help Menu
         help_menu = self.menu_bar.addMenu("Help")
+
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+        help_menu.addSeparator
+        if "log_console" in sys.modules:
+            app.log_console.add_menu_items(help_menu, self)
 
     def open_parent(self):
         # TODO: Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
@@ -329,7 +330,7 @@ class SpatialFiler(QMainWindow):
         self.resize(max_x, max_y)
 
     def populate_items(self):
-        if os.path.normpath(os.path.dirname(self.path)) == os.path.normpath(QDir.homePath()) and os.path.basename(self.path) == "Desktop":
+        if os.path.normpath(self.path) == get_desktop_directory():
 
             # Add every disk in the system
             print("Adding disks")
@@ -359,7 +360,7 @@ class SpatialFiler(QMainWindow):
                     if entry == app.desktop_settings_file:
                         continue
                     # ~/Desktop is a special case; we don't want to show it
-                    if self.path == QDir.homePath() and entry == "Desktop":
+                    if self.path == os.path.basename(get_desktop_directory()) and entry == "Desktop":
                         continue
                     entry_path = os.path.join(self.path, entry)
                     is_directory = os.path.isdir(entry_path)
@@ -608,6 +609,8 @@ class SpatialFiler(QMainWindow):
             event.ignore()
 
     def align_items(self):
+        if not self.items:
+            return
         num_columns = self.width() // self.item_width_for_positioning
         current_column = 0
         current_row = 0
@@ -641,6 +644,8 @@ class SpatialFiler(QMainWindow):
         self.update_container_size()
 
     def align_items_staggered(self):
+        if not self.items:
+            return
         num_columns = self.width() // self.item_width_for_positioning
         line_height = int(self.line_height - 0.5 * app.icon_size)
         current_column = 0
@@ -686,6 +691,8 @@ class SpatialFiler(QMainWindow):
         self.update_container_size()
 
     def align_items_desktop(self):
+        if not self.items:
+            return
         num_rows = (self.height() // self.line_height ) - 1
         current_column = 0
         current_row = 0
@@ -719,6 +726,8 @@ class SpatialFiler(QMainWindow):
                 current_column += 1
 
     def align_items_circle(self):
+        if not self.items:
+            return
         radius = self.width() // 2 - self.horizontal_spacing - self.item_width_for_positioning // 2
 
         # Calculate the center of the circle
@@ -767,7 +776,8 @@ class Item(QWidget):
         self.position = position
 
         icon_provider = QFileIconProvider()
-        if self.path == os.path.normpath(os.path.join(QDir.homePath(), "Desktop", app.trash_name)):
+        # Trash
+        if self.path == os.path.normpath(get_desktop_directory() + "/" + app.trash_name):
             icon = icon_provider.icon(QFileIconProvider.IconType.Trashcan).pixmap(app.icon_size, app.icon_size)
         else:
             icon = icon_provider.icon(QFileInfo(self.path)).pixmap(app.icon_size, app.icon_size)
@@ -947,6 +957,17 @@ class Item(QWidget):
             else:
                 os.system(f"xdg-open \"{self.path}\"")
 
+def get_desktop_directory():
+    """Get the desktop directory of the user."""
+    if sys.platform == "win32":
+        from win32com.client import Dispatch
+        shell = Dispatch("WScript.Shell")
+        desktop = os.path.normpath(shell.SpecialFolders("Desktop"))
+    else:
+        desktop = QDir.homePath() + "/Desktop"
+    return os.path.normpath(desktop)
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     if sys.platform == "win32":
@@ -955,10 +976,22 @@ if __name__ == "__main__":
     app.desktop_settings_file = ".DS_Spatial"
     app.trash_name = "Trash"
     app.icon_size = 32
-    
+
+    # Output not only to the console but also to the GUI
+    try:
+        import log_console
+    except ImportError:
+        pass
+    if "log_console" in sys.modules:
+        app.log_console = log_console.ConsoleOutputStream()
+        sys.stdout = log_console.Tee(sys.stdout, app.log_console)
+        sys.stderr = log_console.Tee(sys.stderr, app.log_console)
+
+
+
     for screen in QApplication.screens():
         # TODO: Possibly only create the desktop window on the primary screen and just show a background image on the other screens
-        desktop = SpatialFiler(os.path.normpath(QDir.homePath() + "/Desktop"), is_desktop_window = True)
+        desktop = SpatialFiler(get_desktop_directory(), is_desktop_window = True)
         desktop.move(screen.geometry().x(), screen.geometry().y())
         desktop.resize(screen.geometry().width(), screen.geometry().height())
         desktop.setWindowFlags(Qt.WindowType.FramelessWindowHint)
@@ -978,7 +1011,6 @@ if __name__ == "__main__":
             windows_wallpaper_path = os.path.normpath(shell.RegRead("HKEY_CURRENT_USER\\Control Panel\\Desktop\\Wallpaper")).replace("\\", "/")
             print("Windows wallpaper path:", windows_wallpaper_path)
             if windows_wallpaper_path != "." and os.path.exists(windows_wallpaper_path):
-                # Set the background image of the window
                 p = desktop.container.palette()
                 p.setBrush(desktop.container.backgroundRole(), QBrush(QPixmap(windows_wallpaper_path).scaled(desktop.width(), desktop.height(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)))
                 desktop.container.setPalette(p)
