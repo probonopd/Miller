@@ -14,12 +14,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements-windows.txt
           pip install pyinstaller
 
       - name: Build executable
         run: |
-          pyinstaller --hidden-import=PyQt6.QtCore --hidden-import=PyQt6.QtGui --hidden-import=PyQt6.QtWidgets --windowed --name Spatial spatial.py
+          pyinstaller --windowed --name Spatial spatial.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
