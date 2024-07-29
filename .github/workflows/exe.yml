@@ -19,7 +19,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --windowed --name Spatial spatial.py
+          pyinstaller --hidden-import=PyQt6.QtCore --hidden-import=PyQt6.QtGui --hidden-import=PyQt6.QtWidgets --windowed --name Spatial spatial.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v2
