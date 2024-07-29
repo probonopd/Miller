@@ -11,7 +11,7 @@ import math
 import shutil
 
 from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo, QTimer
-from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence, QFont, QIcon
+from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence, QFont, QIcon, QShortcut
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QMainWindow
 from PyQt6.QtWidgets import QStatusBar, QComboBox, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog
 
@@ -121,6 +121,53 @@ class SpatialFiler(QMainWindow):
         self.file_watcher.fileChanged.connect(self.file_changed)
         self.file_watcher.addPath(self.path)
 
+    def keyPressEvent(self, event):
+        # Handle Tab and Shift-Tab to select the next and previous item
+        if event.key() == Qt.Key.Key_Tab:
+            if QApplication.keyboardModifiers() == Qt.KeyboardModifier.ShiftModifier:
+                # FIXME: Why does this never get called?
+                self.select_previous_item()
+            else:
+                self.select_next_item()
+
+    def select_next_item(self):
+        print("Selecting next item")
+        if self.selected_files:
+            item = self.selected_files[0]
+            self.selected_files.remove(item)
+        else:
+            item = self.items[0]        
+        item.deactivate()
+
+        # Select the next item if there is one, otherwise select the first item
+        if item in self.items:
+            index = self.items.index(item)
+            if index < len(self.items) - 1:
+                next_item = self.items[index + 1]
+            else:
+                next_item = self.items[0]
+            self.selected_files = [next_item]
+            next_item.activate()
+
+    def select_previous_item(self):
+        print("Selecting previous item")
+        if self.selected_files:
+            item = self.selected_files[0]
+            self.selected_files.remove(item)
+        else:
+            item = self.items[len(self.items) - 1]   
+        item.deactivate()
+
+        # Select the previous item if there is one, otherwise select the last item
+        if item in self.items:
+            index = self.items.index(item)
+            if index > 0:
+                previous_item = self.items[index - 1]
+            else:
+                previous_item = self.items[-1]
+            self.selected_files = [previous_item]
+            previous_item.activate()
+
     def populate_dropdown(self):
         try:
             path = self.path
@@ -212,8 +259,11 @@ class SpatialFiler(QMainWindow):
         # File Menu
         file_menu = self.menu_bar.addMenu("File")
         self.open_action = QAction("Open", self)
-        self.open_action.setShortcut("Ctrl+O")
+        self.open_action.setShortcuts([QKeySequence("Ctrl+O"), QKeySequence("Shift+Ctrl+O"), QKeySequence("Ctrl+Down"), QKeySequence("Shift+Ctrl+Down")])
+        # "Enter" is a non-modifier key shortcut, so we need to use a QShortcut object to catch it
         self.open_action.triggered.connect(self.open_selected_items)
+        self.open_shortcut = QShortcut(QKeySequence("Enter"), self)
+        self.open_shortcut.activated.connect(self.open_selected_items)
         self.open_action.setEnabled(False)
         if self.is_desktop_window == True:
             self.close_action = QAction("Quit", self)
@@ -246,19 +296,11 @@ class SpatialFiler(QMainWindow):
         go_menu = self.menu_bar.addMenu("Go")
         parent = os.path.dirname(self.path)
         up_action = QAction("Up", self)
-        up_action.setShortcut("Ctrl+Up")
-        # up_action.setShortcuts([QKeySequence("Shift+Ctrl+Up"), QKeySequence("Ctrl+Up")]) # Second shortcut
+        up_action.setShortcuts(["Ctrl+Up", "Ctrl+Shift+Up"])
         up_action.triggered.connect(self.open_parent)
-        up_and_close_current_action = QAction("Up and Close Current", self)
-        up_and_close_current_action.setShortcut("Shift+Ctrl+Up")
-        up_and_close_current_action.triggered.connect(self.open_parent_and_close_current)
         if not os.path.exists(parent) or os.path.normpath(self.path) == os.path.normpath(QDir.rootPath()):
             up_action.setDisabled(True)
-            up_and_close_current_action.setDisabled(True)
-        if self.is_desktop_window == True:
-            up_and_close_current_action.setDisabled(True)
         go_menu.addAction(up_action)
-        go_menu.addAction(up_and_close_current_action)
         go_menu.addSeparator()
         home_action = QAction("Home", self)
         home_action.triggered.connect(self.open_home)
@@ -299,17 +341,15 @@ class SpatialFiler(QMainWindow):
             app.log_console.add_menu_items(help_menu, self)
 
     def open_parent(self):
-        # TODO: Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
+        # Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
         parent = os.path.dirname(self.path)
-        if os.path.exists(parent):
-            self.open(parent)
-
-    def open_parent_and_close_current(self):
-        # TODO: Remmove once it is not needed anymore
-        parent = os.path.dirname(self.path)
-        if os.path.exists(parent):
-            self.open(parent)
-            self.close()
+        if (QApplication.keyboardModifiers() == Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier) and self.is_desktop_window == False:
+            if os.path.exists(parent):
+                self.open(parent)
+                self.close()
+        else:
+            if os.path.exists(parent):
+                self.open(parent)
 
     def open_home(self):
         # TODO: Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
@@ -516,6 +556,8 @@ class SpatialFiler(QMainWindow):
     def open_selected_items(self):
         for item in self.selected_files:
             item.open(None)
+        if (QApplication.keyboardModifiers() == Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier) and self.is_desktop_window == False:
+            self.close()
 
     def update_menu_state(self):
         # Enable/disable menu actions based on the selection
@@ -586,16 +628,14 @@ class SpatialFiler(QMainWindow):
                         if os.path.normpath(item.path) == os.path.normpath(path):
                             drop_position = event.position()
                             print("Moving to coordinates", drop_position.x(), drop_position.y())
-                            # Somehow these coordinates are not correct; they are always too deep in the window, so we need to adjust them
-                            # FIXME: The -20 is trial and error; it should be calculated based on something
-                            # Apparently, QDropEvent's pos() method gives the position of the mouse cursor at the time of the drop event.
+                            # FIXME: Apparently, QDropEvent's pos() method gives the position of the mouse cursor at the time of the drop event.
                             # That is not what we want. We want the position of the item that is being dropped, not the mouse cursor.
                             # Do we need mapToGlobal() or mapFromGlobal()? Or do we need to do something differently in the startDrag event first, like adding all selected item locations to the drag event?
                             pixmap_height = item.icon_label.pixmap().height()
-                            drop_position = QPoint(int(drop_position.x() - 20), int(drop_position.y() - pixmap_height))
-                            # Half an icon height to the top and to the left
-                            # FIXME: Instead of hardcoding the hot spot to be half the icon size, it should be corrected based on the position of the mouse cursor relative to the item at the time of the drag event
-                            drop_position = QPoint(drop_position.x() - int(app.icon_size/2), drop_position.y() - int(app.icon_size/2))
+                            drop_position = QPoint(int(drop_position.x()), int(drop_position.y() - pixmap_height))
+                            # The next line currently works because the mouse is set to be in the center of the item when the drag starts,
+                            # but that is not a good solution because it makes the dragged icon jump at the beginning of the drag
+                            drop_position = QPoint(drop_position.x() - int(item.width()/2), drop_position.y() - int(app.icon_size/4))
                             # Take into consideration the scroll position
                             drop_position += QPoint(self.scroll_area.horizontalScrollBar().value(), self.scroll_area.verticalScrollBar().value())
                             # If the Alt modifier key is pressed, move to something that is a multiple of 24 - this is kind of a grid
