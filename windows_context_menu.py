@@ -18,12 +18,12 @@ from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox
 import win32com.client
 
 
-def _safe_path_parse(file_path: os.PathLike | str) -> Path:
+def _safe_path_parse(file_path) -> Path:
     """Safely parse a file path to a Path object."""
     return Path(file_path)
 
 
-def show_context_menu(paths: Sequence[os.PathLike | str]):
+def show_context_menu(paths):
     """
     Show the appropriate context menu.
 

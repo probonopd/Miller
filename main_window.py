@@ -150,11 +150,14 @@ class MillerColumns(QMainWindow):
                     cancel_action = menu.addAction("Cancel")
                     action = menu.exec(QCursor.pos())
                     if action == move_action:
-                        windows_file_operations.move_files_with_dialog(file_paths, drop_target)
+                        if sys.platform == 'win32':
+                            windows_file_operations.move_files_with_dialog(file_paths, drop_target)
                     elif action == copy_action:
-                        windows_file_operations.copy_files_with_dialog(file_paths, drop_target)
+                        if sys.platform == 'win32':
+                            windows_file_operations.copy_files_with_dialog(file_paths, drop_target)
                     elif action == link_action:
-                        windows_file_operations.create_shortcuts_with_dialog(file_paths, drop_target)
+                        if sys.platform == 'win32':
+                            windows_file_operations.create_shortcuts_with_dialog(file_paths, drop_target)
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"{e}")
     

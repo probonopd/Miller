@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-# TODO: Rename activate/deactivate to highlight/unhighlight
-
 # Tested on Windows 11. Moving items within the window not perfect here, but it is using Qt drag and drop
 # Key is to avoid QListView and QFileSystemModel because they are not suited for our purpose of creating a spatial file manager
 
@@ -12,14 +10,15 @@ import subprocess
 import math
 import shutil
 
-from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo, QTimer
-from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence, QFont, QIcon, QShortcut
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QMainWindow
-from PyQt6.QtWidgets import QStatusBar, QComboBox, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog
+from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo, QTimer, QRegularExpression
+from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence, QFont, QIcon, QShortcut, QRegularExpressionValidator, QCursor
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QMainWindow, QDialogButtonBox
+from PyQt6.QtWidgets import QStatusBar, QComboBox, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog, QLineEdit, QInputDialog
 
 if sys.platform == "win32":
     from win32com.client import Dispatch
     import windows_context_menu
+    import windows_file_operations
 
 import appdir
 
@@ -28,7 +27,7 @@ class SpatialFiler(QMainWindow):
     def __init__(self, path=None, is_desktop_window=False):
         super().__init__()
         
-        self.path = path if path else QDir.homePath()
+        self.path = os.path.normpath(path) if path else QDir.homePath()
         self.setWindowTitle(self.path)
         self.setGeometry(100, 100, 800, 600)
         self.is_desktop_window = is_desktop_window
@@ -146,7 +145,7 @@ class SpatialFiler(QMainWindow):
             self.selected_files.remove(item)
         else:
             item = self.items[0]        
-        item.deactivate()
+        item.unhighlight()
 
         # Select the next item if there is one, otherwise select the first item
         if item in self.items:
@@ -156,7 +155,7 @@ class SpatialFiler(QMainWindow):
             else:
                 next_item = self.items[0]
             self.selected_files = [next_item]
-            next_item.activate()
+            next_item.highlight()
 
     def select_previous_item(self):
         print("Selecting previous item")
@@ -165,7 +164,7 @@ class SpatialFiler(QMainWindow):
             self.selected_files.remove(item)
         else:
             item = self.items[len(self.items) - 1]   
-        item.deactivate()
+        item.unhighlight()
 
         # Select the previous item if there is one, otherwise select the last item
         if item in self.items:
@@ -175,7 +174,7 @@ class SpatialFiler(QMainWindow):
             else:
                 previous_item = self.items[-1]
             self.selected_files = [previous_item]
-            previous_item.activate()
+            previous_item.highlight()
 
     def populate_dropdown(self):
         try:
@@ -357,7 +356,7 @@ class SpatialFiler(QMainWindow):
         for item in self.items:
             self.selected_files.clear()
             self.selected_files.append(item)
-            item.activate()
+            item.highlight()
 
     def open_parent(self):
         # Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
@@ -413,7 +412,7 @@ class SpatialFiler(QMainWindow):
             else:
                 for entry in entries:
                     # Skip if already in the list
-                    if any(item.name == entry for item in self.items):
+                    if any(item.path == self.path for item in self.items):
                         continue
                     # .DS_Spatial is a special file that we don't want to show
                     if entry == app.desktop_settings_file:
@@ -461,7 +460,7 @@ class SpatialFiler(QMainWindow):
     def mousePressEvent(self, event):
 
         for item in self.items:
-            item.text_label_deactivate()
+            item.text_label_unhighlight()
 
         scroll_pos = QPoint(self.scroll_area.horizontalScrollBar().value(),
                             self.scroll_area.verticalScrollBar().value())
@@ -488,17 +487,17 @@ class SpatialFiler(QMainWindow):
                 if event.modifiers() == Qt.KeyboardModifier.ControlModifier:
                     if clicked_item in self.selected_files:
                         self.selected_files.remove(clicked_item)
-                        clicked_item.deactivate()
+                        clicked_item.unhighlight()
                     else:
                         self.selected_files.append(clicked_item)
-                        clicked_item.activate()
+                        clicked_item.highlight()
                 else:
                     if clicked_item not in self.selected_files:
                         self.selected_files = [clicked_item]
                         for f in self.items:
                             if f != clicked_item:
-                                f.deactivate()
-                        clicked_item.activate()
+                                f.unhighlight()
+                        clicked_item.highlight()
                     
                     self.dragging = True
                     self.last_pos = adjusted_pos
@@ -520,7 +519,7 @@ class SpatialFiler(QMainWindow):
                 self.update()
                 self.selected_files = []
                 for item in self.items:
-                    item.deactivate()
+                    item.unhighlight()
                 self.update_menu_state()
 
     def mouseMoveEvent(self, event):
@@ -558,11 +557,11 @@ class SpatialFiler(QMainWindow):
                     item.y() <= self.selection_rect.y() + self.selection_rect.height()):
                     if item not in self.selected_files:
                         self.selected_files.append(item)
-                        item.activate()
+                        item.highlight()
                 else:
                     if item in self.selected_files:
                         self.selected_files.remove(item)
-                        item.deactivate()
+                        item.unhighlight()
 
     def mouseReleaseEvent(self, event):
         if self.dragging:
@@ -683,7 +682,31 @@ class SpatialFiler(QMainWindow):
                             item.move(drop_position)
                             break
                 else:
-                    print("Not implemented yet: dropEvent for items from other directories")
+                    # Files from another window are dropped on this window
+                    file_paths = [url.toLocalFile() for url in urls]
+                    # Path onto which the files were dropped
+                    drop_target = self.path
+                    if not file_paths:
+                        return
+                    try:
+                        menu = QMenu()
+                        move_action = menu.addAction("Move")
+                        copy_action = menu.addAction("Copy")
+                        link_action = menu.addAction("Link")
+                        menu.addSeparator()
+                        cancel_action = menu.addAction("Cancel")
+                        action = menu.exec(QCursor.pos())
+                        if action == move_action:
+                            if sys.platform == 'win32':
+                                windows_file_operations.move_files_with_dialog(file_paths, drop_target)
+                        elif action == copy_action:
+                            if sys.platform == 'win32':
+                                windows_file_operations.copy_files_with_dialog(file_paths, drop_target)
+                        elif action == link_action:
+                            if sys.platform == 'win32':
+                                windows_file_operations.create_shortcuts_with_dialog(file_paths, drop_target)
+                    except Exception as e:
+                        QMessageBox.critical(self, "Error", f"{e}")
             event.accept()
         else:
             event.ignore()
@@ -949,24 +972,52 @@ class Item(QWidget):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
 
-        self.text_label_deactivate()
+        self.text_label_unhighlight()
 
     def on_label_clicked(self, event):
-        # TODO: Deactivate the text labels of all other items; how to get to the other items?
-        self.text_label_activate()
+        # TODO: unhighlight the text labels of all other items; how to get to the other items?
+        self.text_label_highlight()
     
-    def activate(self):
+    def highlight(self):
         self.icon_label.setStyleSheet("background-color: lightblue;")
 
-    def deactivate(self):
+    def unhighlight(self):
         self.icon_label.setStyleSheet("border: 0px; background-color: transparent;")
 
-    def text_label_activate(self):
+    def rename(self):
+        dialog = QDialog(self)
+        layout = QVBoxLayout(dialog)
+
+        label = QLabel("New name:")
+        layout.addWidget(label)
+
+        line_edit = QLineEdit(self.name)
+        layout.addWidget(line_edit)
+
+        regex = QRegularExpression("[^/\\\\]+")
+        validator = QRegularExpressionValidator(regex)
+        line_edit.setValidator(validator)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_name = line_edit.text()
+            if sys.platform == "win32":
+                try:
+                    windows_file_operations.rename_file_with_dialog(self.path, new_name)
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"Error renaming file: {e}")
+
+    def text_label_highlight(self):
         if os.access(self.path, os.W_OK):
             self.text_label.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
             self.text_label.setStyleSheet("background-color: black; color: white;")
+            self.rename()
 
-    def text_label_deactivate(self):
+    def text_label_unhighlight(self):
         self.text_label.setStyleSheet("background-color: rgba(255, 255, 255, 0.66); color: black;")
 
     def show_context_menu(self, pos):
@@ -1042,7 +1093,7 @@ class Item(QWidget):
     def open(self, event=None, spring_open=False):
         print(f"Asked to open {self.path}")
         self.hover_timer.stop()
-        self.deactivate()
+        self.unhighlight()
         self.path = os.path.realpath(self.path)
 
         if not os.path.exists(self.path):
@@ -1063,7 +1114,7 @@ class Item(QWidget):
             existing_window = app.open_windows.get(self.path)
             if existing_window:
                 existing_window.raise_()
-                existing_window.activateWindow()
+                existing_window.highlightWindow()
             else:
                 new_window = SpatialFiler(self.path)
                 if spring_open == True:
@@ -1099,7 +1150,7 @@ class Item(QWidget):
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
             print("Dragging over this item:", [url.toLocalFile() for url in urls])
-            self.activate()
+            self.highlight()
             # Spring-loaded folders
             if self.is_directory == True and appdir.is_appdir(self.path) == False:
                 print("Starting hover timer")
@@ -1111,7 +1162,7 @@ class Item(QWidget):
     def dragLeaveEvent(self, event):
         print("No longer dragging over this item")
         self.hover_timer.stop()
-        self.deactivate()
+        self.unhighlight()
 
     def dropEvent(self, event):
         print("dropEvent called")
@@ -1121,7 +1172,32 @@ class Item(QWidget):
             print("Dropped onto this item:", [url.toLocalFile() for url in urls])
             event.ignore() # Do not move the item in the window
             # TODO: If this item is an application, then launch this item with the dropped items as arguments;
-            # if this item is a directory, or move/copy the items there
+            if self.is_directory:
+                # Files from another window are dropped on this window
+                file_paths = [url.toLocalFile() for url in urls]
+                # Path onto which the files were dropped
+                drop_target = self.path
+                if not file_paths:
+                    return
+                try:
+                    menu = QMenu()
+                    move_action = menu.addAction("Move")
+                    copy_action = menu.addAction("Copy")
+                    link_action = menu.addAction("Link")
+                    menu.addSeparator()
+                    cancel_action = menu.addAction("Cancel")
+                    action = menu.exec(QCursor.pos())
+                    if action == move_action:
+                        if sys.platform == 'win32':
+                            windows_file_operations.move_files_with_dialog(file_paths, drop_target)
+                    elif action == copy_action:
+                        if sys.platform == 'win32':
+                            windows_file_operations.copy_files_with_dialog(file_paths, drop_target)
+                    elif action == link_action:
+                        if sys.platform == 'win32':
+                            windows_file_operations.create_shortcuts_with_dialog(file_paths, drop_target)
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"{e}")
         else:
             event.ignore()  # Ignore the event if it's not valid
 
