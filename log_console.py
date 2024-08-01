@@ -68,11 +68,13 @@ class Tee(object):
         self.stream2 = stream2
 
     def write(self, data):
-        self.stream1.write(data)
+        if self.stream1:
+            self.stream1.write(data)
         self.stream2.write(data)
 
     def flush(self):
-        self.stream1.flush()
+        if self.stream1:
+            self.stream1.flush()
         self.stream2.flush()
 
 """app.log_console = log_console.ConsoleOutputStream()
