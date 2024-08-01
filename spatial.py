@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# TODO: Rename activate/deactivate to highlight/unhighlight
+
 # Tested on Windows 11. Moving items within the window not perfect here, but it is using Qt drag and drop
 # Key is to avoid QListView and QFileSystemModel because they are not suited for our purpose of creating a spatial file manager
 
@@ -19,6 +21,8 @@ if sys.platform == "win32":
     from win32com.client import Dispatch
     import windows_context_menu
 
+import appdir
+
 class SpatialFiler(QMainWindow):
 
     def __init__(self, path=None, is_desktop_window=False):
@@ -28,6 +32,7 @@ class SpatialFiler(QMainWindow):
         self.setWindowTitle(self.path)
         self.setGeometry(100, 100, 800, 600)
         self.is_desktop_window = is_desktop_window
+        self.is_spring_opened = False
 
         # Set folder icon on window; unfortunately Windows doesn't use this for the taskbar icon
         icon_provider = QFileIconProvider()
@@ -64,6 +69,7 @@ class SpatialFiler(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.layout = QVBoxLayout(self.central_widget)
         self.scroll_area = QScrollArea(self.central_widget)
+        self.scroll_area.setContentsMargins(0, 0, 0, 0)
         self.scroll_area.setWidgetResizable(True)
         self.container = QWidget()
         palette = self.container.palette()
@@ -114,6 +120,9 @@ class SpatialFiler(QMainWindow):
             self.timer.timeout.connect(self.update_status_bar)
             self.timer.start(5000)
             self.update_status_bar()
+
+        # To keep track of drag distances
+        self.initial_position = None
 
         # Watch for changes in the directory
         self.file_watcher = QFileSystemWatcher()
@@ -218,7 +227,6 @@ class SpatialFiler(QMainWindow):
             print(f"Error getting free space: {e}")
         self.status_bar.showMessage(f"{item_count} items, {free_space_str} available")
 
-
     def open(self, path):
         i = Item(path, True, QPoint(0, 0), self.container)
         i.open(None)
@@ -292,6 +300,11 @@ class SpatialFiler(QMainWindow):
         edit_menu.addAction(self.delete_action)
         for action in [self.cut_action, self.copy_action, self.paste_action, self.delete_action]:
             action.setEnabled(False)
+        edit_menu.addSeparator()
+        self.select_all_action = QAction("Select All", self)
+        self.select_all_action.setShortcut("Ctrl+A")
+        self.select_all_action.triggered.connect(self.select_all)
+        edit_menu.addAction(self.select_all_action)
         # Go Menu
         go_menu = self.menu_bar.addMenu("Go")
         parent = os.path.dirname(self.path)
@@ -339,6 +352,12 @@ class SpatialFiler(QMainWindow):
         help_menu.addSeparator
         if "log_console" in sys.modules:
             app.log_console.add_menu_items(help_menu, self)
+
+    def select_all(self):
+        for item in self.items:
+            self.selected_files.clear()
+            self.selected_files.append(item)
+            item.activate()
 
     def open_parent(self):
         # Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
@@ -434,9 +453,10 @@ class SpatialFiler(QMainWindow):
         self.update_container_size()
 
     def update_container_size(self):
-        max_x = max(item.x() + item.width() for item in self.items) + 10
-        max_y = max(item.y() + item.height() for item in self.items) + 10
-        self.container.setMinimumSize(QSize(max_x, max_y))
+        if len(self.items) > 0:
+            max_x = max(item.x() + item.width() for item in self.items) + 10
+            max_y = max(item.y() + item.height() for item in self.items) + 10
+            self.container.setMinimumSize(QSize(max_x, max_y))
 
     def mousePressEvent(self, event):
 
@@ -599,20 +619,32 @@ class SpatialFiler(QMainWindow):
         event.accept()
 
     def dragEnterEvent(self, event):
+        if self.initial_position is None:
+            self.initial_position = event.position()
+
         print("Drag enter event")
         if event.mimeData().hasUrls():
             event.accept()
         else:
             event.ignore()
 
-    def dragMoveEvent(self, event):
-        # print("Drag move event")
-        if event.mimeData().hasUrls():
-            event.accept()
-        else:
-            event.ignore()
+    def startDrag(self, event):
+        self.initial_position = event.pos()
+
+    def dragLeaveEvent(self, event):
+        # If this window was spring-loaded, close it when the drag leaves the window
+        if self.is_spring_opened:
+            # FIXME: For some reason, the following line does not work. May need to iterate through all item rects
+            # to see if the mouse is within them (and possibly some margin)
+            if any(item.underMouse() for item in self.items):
+                event.ignore()
+            else:
+                self.close()
+                event.accept()
             
     def dropEvent(self, event):
+        initial_position = self.initial_position
+        self.initial_position = None
         print("Drop event")
         if event.mimeData().hasUrls():
             urls = event.mimeData().urls()
@@ -624,6 +656,13 @@ class SpatialFiler(QMainWindow):
                 # Check if the file is already in the directory; if yes, just move its position
                 if os.path.normpath(os.path.dirname(path)) == os.path.normpath(self.path):
                     print("File was moved within the same directory")
+                    distance = (event.position() - initial_position).manhattanLength()
+                    print("Distance from initial position:", distance)
+                    # Ignore moves below a threshold distance
+                    # QApplication.startDragDistance() is the default value that Qt uses for this
+                    if distance < 20:
+                        event.ignore()
+                        return
                     for item in self.items:
                         if os.path.normpath(item.path) == os.path.normpath(path):
                             drop_position = event.position()
@@ -684,11 +723,14 @@ class SpatialFiler(QMainWindow):
         # Update the container size
         self.update_container_size()
 
+        if not self.is_desktop_window:
+            self.adjust_window_size()
+
     def align_items_staggered(self):
         if not self.items:
             return
-        num_columns = self.width() // self.item_width_for_positioning
-        line_height = int(self.line_height - 0.5 * app.icon_size)
+        num_columns = (self.width() // self.item_width_for_positioning)
+        line_height = int(self.line_height - 1.1 * app.icon_size) # 0.5
         current_column = 0
         current_row = 0
 
@@ -699,9 +741,9 @@ class SpatialFiler(QMainWindow):
         for i, item in enumerate(self.items):
             # Calculate the new position of the item
             if current_row % 2 == 0:  # Even row
-                new_x = current_column * (self.item_width_for_positioning + self.horizontal_spacing)
+                new_x = current_column * (self.item_width_for_positioning + self.horizontal_spacing + app.icon_size)
             else:  # Odd row
-                new_x = (current_column + 0.5) * (self.item_width_for_positioning + self.horizontal_spacing)
+                new_x = (current_column + 0.5) * (self.item_width_for_positioning + self.horizontal_spacing + app.icon_size)
 
             new_y = current_row * (line_height + self.vertical_spacing)
 
@@ -730,6 +772,9 @@ class SpatialFiler(QMainWindow):
 
         # Update the container size
         self.update_container_size()
+
+        if not self.is_desktop_window:
+            self.adjust_window_size()
 
     def align_items_desktop(self):
         if not self.items:
@@ -789,6 +834,9 @@ class SpatialFiler(QMainWindow):
             # Move the item to the new position
             item.move(int(new_x), int(new_y))
 
+        if not self.is_desktop_window:
+            self.adjust_window_size()
+
     def show_about(self):
         dialog = QMessageBox(self)
         dialog.setIconPixmap(app.icon.pixmap(app.icon_size, app.icon_size))
@@ -811,8 +859,13 @@ def robust_filename(path):
 class Item(QWidget):
     def __init__(self, path, is_directory, position, parent=None):
         super().__init__(parent)
-        self.path = path
+        self.path = os.path.normpath(path)
         self.name = robust_filename(path)
+
+        # For spring-loaded folders
+        self.hover_timer = QTimer(self)
+        self.hover_timer.setSingleShot(True)
+        self.hover_timer.timeout.connect(self.spring_open)
 
         # On Windows, files ending with .lnk are shortcuts; we remove the final extension from the name
         if sys.platform == "win32" and self.name.endswith(".lnk"):
@@ -821,13 +874,22 @@ class Item(QWidget):
         self.is_directory = is_directory
         self.position = position
 
+        self.setAcceptDrops(True)
+
         icon_provider = QFileIconProvider()
         # Trash
         if self.path == os.path.normpath(get_desktop_directory() + "/" + app.trash_name):
             icon = icon_provider.icon(QFileIconProvider.IconType.Trashcan).pixmap(app.icon_size, app.icon_size)
+        elif appdir.is_appdir(self.path):
+            A = appdir.AppDir(self.path)
+            icon_path = A.get_icon_path()
+            if icon_path:
+                icon = QIcon(icon_path).pixmap(app.icon_size, app.icon_size)
+            else:
+                icon = icon_provider.icon(QFileInfo(self.path)).pixmap(app.icon_size, app.icon_size)
         else:
             icon = icon_provider.icon(QFileInfo(self.path)).pixmap(app.icon_size, app.icon_size)
-
+        
         # Maximum 150 pixels wide, elide the text in the middle
         font_metrics = QFontMetrics(self.font())
         self.elided_name = font_metrics.elidedText(self.name, Qt.TextElideMode.ElideMiddle, 150)
@@ -974,12 +1036,27 @@ class Item(QWidget):
         
         dialog.exec()
 
-    def open(self, event):
+    def spring_open(self):
+        self.open(event=None, spring_open=True)
+
+    def open(self, event=None, spring_open=False):
         print(f"Asked to open {self.path}")
+        self.hover_timer.stop()
+        self.deactivate()
         self.path = os.path.realpath(self.path)
 
         if not os.path.exists(self.path):
             QMessageBox.critical(self, "Error", "%s does not exist." % self.path)
+            return
+        
+        if appdir.is_appdir(self.path):
+            A = appdir.AppDir(self.path)
+            apprun_path = A.get_apprun_path()
+            if apprun_path.endswith(".bat"):
+                # TODO: Find a way to run bat files without opening a window
+                os.startfile(A.get_apprun_path())
+            else:
+                os.startfile(A.get_apprun_path())
             return
 
         if self.is_directory:
@@ -989,6 +1066,8 @@ class Item(QWidget):
                 existing_window.activateWindow()
             else:
                 new_window = SpatialFiler(self.path)
+                if spring_open == True:
+                    new_window.is_spring_opened = True
                 new_window.show()
                 app.open_windows[self.path] = new_window
         else:
@@ -1014,6 +1093,37 @@ class Item(QWidget):
                         print(f"Error opening file: {e}")
             else:
                 os.system(f"xdg-open \"{self.path}\"")
+
+    def dragEnterEvent(self, event):
+        print("dragEnterEvent called")
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            print("Dragging over this item:", [url.toLocalFile() for url in urls])
+            self.activate()
+            # Spring-loaded folders
+            if self.is_directory == True and appdir.is_appdir(self.path) == False:
+                print("Starting hover timer")
+                self.hover_timer.start(1500)
+            event.accept()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        print("No longer dragging over this item")
+        self.hover_timer.stop()
+        self.deactivate()
+
+    def dropEvent(self, event):
+        print("dropEvent called")
+        self.hover_timer.stop()
+        if event.mimeData().hasUrls():
+            urls = event.mimeData().urls()
+            print("Dropped onto this item:", [url.toLocalFile() for url in urls])
+            event.ignore() # Do not move the item in the window
+            # TODO: If this item is an application, then launch this item with the dropped items as arguments;
+            # if this item is a directory, or move/copy the items there
+        else:
+            event.ignore()  # Ignore the event if it's not valid
 
 def get_desktop_directory():
     """Get the desktop directory of the user."""
@@ -1069,7 +1179,7 @@ if __name__ == "__main__":
             print("Windows wallpaper path:", windows_wallpaper_path)
             if windows_wallpaper_path != "." and os.path.exists(windows_wallpaper_path):
                 p = desktop.container.palette()
-                p.setBrush(desktop.container.backgroundRole(), QBrush(QPixmap(windows_wallpaper_path).scaled(desktop.width(), desktop.height(), Qt.AspectRatioMode.KeepAspectRatioByExpanding)))
+                p.setBrush(desktop.container.backgroundRole(), QBrush(QPixmap(windows_wallpaper_path).scaled(desktop.width(), desktop.height(), Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)))
                 desktop.container.setPalette(p)
             else:
                 print("No wallpaper found")
