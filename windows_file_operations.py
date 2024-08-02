@@ -31,6 +31,7 @@ Example:
 
 import os
 from win32com.shell import shell, shellcon
+from win32com import client
 
 # Constants for SHFileOperation flags
 FO_COPY = shellcon.FO_COPY
@@ -177,16 +178,20 @@ def create_shortcuts_with_dialog(src_list, dst):
     Raises:
         OSError: If the SHFileOperation fails.
     """
-    src_list = [convert_path_with_slashes_to_backslashes(src) for src in src_list]
-    dst = convert_path_with_slashes_to_backslashes(dst)
-    src = '\0'.join(src_list) + '\0'
-    result = shell.SHFileOperation(
-        (0, FO_COPY, src, dst, FOF_ALLOWUNDO | FOF_WANTNUKEWARNING | FOF_SIMPLEPROGRESS, None, None)
-    )
-    fAnyOperationsAborted = result[1]
-    if result[0] != 0 and not fAnyOperationsAborted:
-        raise OSError(f"SHFileOperation failed with error code: {result[0]}")
-
+    # Use
+    # shell = Dispatch('WScript.Shell')
+    # shortcut = shell.CreateShortcut(dst)
+    shell = client.Dispatch("WScript.Shell")
+    try:
+        for src in src_list:
+            filename = os.path.basename(src)
+            shortcut_path = os.path.join(dst, filename + ".lnk")
+            shortcut = shell.CreateShortcut(shortcut_path)
+            shortcut.TargetPath = src
+            shortcut.save()
+    except Exception as e:
+        raise OSError(f"An error occurred while creating shortcuts: {e}")
+    
 if __name__ == "__main__":
     # Example usage of the functions
     src_paths = [r"C:\path\to\source1", r"C:\path\to\source2"]

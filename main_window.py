@@ -409,7 +409,7 @@ class MillerColumns(QMainWindow):
         """
         Navigate to the trash directory.
         """
-        if os.name == 'nt':
+        if sys.platform == 'win32':
             sys_drive = os.getenv('SystemDrive')
             trash_dir = f"{sys_drive}\\$Recycle.Bin"
         else:

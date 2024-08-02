@@ -286,10 +286,13 @@ class SpatialFiler(QMainWindow):
         edit_menu = self.menu_bar.addMenu("Edit")
         self.cut_action = QAction("Cut", self)
         self.cut_action.setShortcut("Ctrl+X")
+        self.cut_action.triggered.connect(self.cut_selected_items)
         self.copy_action = QAction("Copy", self)
         self.copy_action.setShortcut("Ctrl+C")
+        self.copy_action.triggered.connect(self.copy_selected_items)
         self.paste_action = QAction("Paste", self)
         self.paste_action.setShortcut("Ctrl+V")
+        self.paste_action.triggered.connect(self.paste_items)
         self.delete_action = QAction("Delete", self)
         self.delete_action.setShortcut("Delete")
         edit_menu.addAction(self.cut_action)
@@ -297,7 +300,7 @@ class SpatialFiler(QMainWindow):
         edit_menu.addAction(self.paste_action)
         edit_menu.addSeparator()
         edit_menu.addAction(self.delete_action)
-        for action in [self.cut_action, self.copy_action, self.paste_action, self.delete_action]:
+        for action in [self.cut_action, self.copy_action, self.delete_action]:
             action.setEnabled(False)
         edit_menu.addSeparator()
         self.select_all_action = QAction("Select All", self)
@@ -358,6 +361,33 @@ class SpatialFiler(QMainWindow):
             self.selected_files.append(item)
             item.highlight()
 
+    def cut_selected_items(self):
+        app.to_cut = True
+        self.copy_to_clipboard()
+
+    def copy_selected_items(self):
+        app.to_cut = False
+        self.copy_to_clipboard()
+
+    def paste_items(self):
+        clipboard = QApplication.clipboard()
+        urls = clipboard.mimeData().urls()
+        if not urls:
+            return
+        paths = [url.toLocalFile() for url in urls]
+        if app.to_cut:
+            if sys.platform == "win32":
+                windows_file_operations.move_files_with_dialog(paths, self.path)
+        else:
+            if sys.platform == "win32":
+                windows_file_operations.copy_files_with_dialog(paths, self.path)
+
+    def copy_to_clipboard(self):
+        clipboard = QApplication.clipboard()
+        mime_data = QMimeData()
+        mime_data.setUrls([QUrl.fromLocalFile(file.path) for file in self.selected_files])
+        clipboard.setMimeData(mime_data)
+
     def open_parent(self):
         # Detect whether the Shift key is pressed; if yes; if yes, close the current window if it is not the fullscreen desktop window
         parent = os.path.dirname(self.path)
@@ -397,13 +427,13 @@ class SpatialFiler(QMainWindow):
                     # The name of the disk is the first part of the path, e.g. "C:" or "D:"
                     disk_name = disk.path()
                     print("Adding disk", disk_name)
-                    self.add_file(disk.path(), True)
+                    self.add_item(disk.path(), True)
 
             # Add the Trash item
             if not any(item.name == app.trash_name for item in self.items):
                 print("Adding Trash item")
                 trash = os.path.join(self.path, app.trash_name)
-                self.add_file(trash, True)
+                self.add_item(trash, True)
     
         try:
             entries = os.listdir(self.path)
@@ -423,14 +453,14 @@ class SpatialFiler(QMainWindow):
                     entry_path = os.path.join(self.path, entry)
                     is_directory = os.path.isdir(entry_path)
                     # print(f"Adding item: {entry}")
-                    self.add_file(entry_path, is_directory)
+                    self.add_item(entry_path, is_directory)
         except Exception as e:
             print(f"Error accessing directory: {e}")
 
     def calculate_max_width(self):
         return max(item.width() for item in self.items) if self.items else 150
 
-    def add_file(self, path, is_directory):
+    def add_item(self, path, is_directory):
         position = QPoint(self.start_x + len(self.items) % 5 * (self.calculate_max_width() + self.horizontal_spacing), 
                           self.start_y + len(self.items) // 5 * (self.line_height + self.vertical_spacing))
         # Check whether a position is provided in the .DS_Spatial file; if yes, use it
@@ -584,7 +614,6 @@ class SpatialFiler(QMainWindow):
         self.open_action.setEnabled(has_selection)
         self.cut_action.setEnabled(has_selection)
         self.copy_action.setEnabled(has_selection)
-        self.paste_action.setEnabled(has_selection)
         self.delete_action.setEnabled(has_selection)
 
     def closeEvent(self, event):
@@ -802,37 +831,43 @@ class SpatialFiler(QMainWindow):
     def align_items_desktop(self):
         if not self.items:
             return
-        num_rows = (self.height() // self.line_height ) - 1
-        current_column = 0
-        current_row = 0
 
+        num_rows = (self.height() // self.line_height) - 1
         start_x = self.width() - self.item_width_for_positioning
         start_y = 10
+        space_on_top = 10
 
-        for item in self.items:
-
-            # Calculate the new position of the item
-            new_x = start_x - current_column * (self.item_width_for_positioning + self.horizontal_spacing)
-            new_y = start_y + current_row * (self.line_height + self.vertical_spacing)
-
-            # If the item's text is wider than the item's icon, need to adjust the x position by moving it to the left
+        def position_item(item, column, row):
+            new_x = start_x - column * (self.item_width_for_positioning + self.horizontal_spacing)
+            new_y = start_y + row * (self.line_height + self.vertical_spacing)
+            
             if item.text_label.width() > item.icon_label.width():
                 new_x -= int((item.text_label.width() - item.icon_label.width()) / 2)
 
-            # Space on top and at the left of the window, at the top 10 pixels, at the left half of the item width
-            new_x += int(self.item_width_for_positioning/4)
-            new_y += 10
-
-            # Move the item to the new position
+            new_x += int(self.item_width_for_positioning / 4)
+            new_y += space_on_top
             item.move(new_x, new_y)
 
-            # Increment the current column
+        current_column, current_row = 0, 0
+
+        for item in self.items:
+            if item.name == app.trash_name:
+                continue
+            position_item(item, current_column, current_row)
             current_row += 1
 
-            # If the current row is equal to the number of rows, reset it and increment the current column
             if current_row == num_rows:
                 current_row = 0
                 current_column += 1
+
+            if current_row == num_rows - 1 and current_column == 0:
+                current_row = 0
+                current_column += 1
+
+        # Position the Trash item
+        trash = next((item for item in self.items if item.name == app.trash_name), None)
+        if trash:
+            position_item(trash, 0, num_rows - 1)
 
     def align_items_circle(self):
         if not self.items:
@@ -903,6 +938,11 @@ class Item(QWidget):
         # Trash
         if self.path == os.path.normpath(get_desktop_directory() + "/" + app.trash_name):
             icon = icon_provider.icon(QFileIconProvider.IconType.Trashcan).pixmap(app.icon_size, app.icon_size)
+            if sys.platform == 'win32':
+                sys_drive = os.getenv('SystemDrive')
+                self.path = f"{sys_drive}\\$Recycle.Bin"
+            else:
+                self.path = QDir.homePath() + '/.local/share/Trash/files/'
         elif appdir.is_appdir(self.path):
             A = appdir.AppDir(self.path)
             icon_path = A.get_icon_path()
@@ -1049,7 +1089,6 @@ class Item(QWidget):
             self.copy_action.setDisabled(True)
             context_menu.addAction(self.copy_action)
             self.paste_action = QAction("Paste", self)
-            self.paste_action.setDisabled(True)
             context_menu.addAction(self.paste_action)
             self.trash_action = QAction("Move to Trash", self)
             self.trash_action.setDisabled(True)
@@ -1181,21 +1220,32 @@ class Item(QWidget):
                     return
                 try:
                     menu = QMenu()
-                    move_action = menu.addAction("Move")
-                    copy_action = menu.addAction("Copy")
-                    link_action = menu.addAction("Link")
-                    menu.addSeparator()
-                    cancel_action = menu.addAction("Cancel")
-                    action = menu.exec(QCursor.pos())
-                    if action == move_action:
-                        if sys.platform == 'win32':
-                            windows_file_operations.move_files_with_dialog(file_paths, drop_target)
-                    elif action == copy_action:
-                        if sys.platform == 'win32':
-                            windows_file_operations.copy_files_with_dialog(file_paths, drop_target)
-                    elif action == link_action:
-                        if sys.platform == 'win32':
-                            windows_file_operations.create_shortcuts_with_dialog(file_paths, drop_target)
+                    if self.path != os.path.normpath(get_desktop_directory() + "/" + app.trash_name):
+                        move_action = menu.addAction("Move")
+                        copy_action = menu.addAction("Copy")
+                        link_action = menu.addAction("Link")
+                        menu.addSeparator()
+                        cancel_action = menu.addAction("Cancel")
+                        action = menu.exec(QCursor.pos())
+                        if action == move_action:
+                            if sys.platform == 'win32':
+                                windows_file_operations.move_files_with_dialog(file_paths, drop_target)
+                        elif action == copy_action:
+                            if sys.platform == 'win32':
+                                windows_file_operations.copy_files_with_dialog(file_paths, drop_target)
+                        elif action == link_action:
+                            if sys.platform == 'win32':
+                                windows_file_operations.create_shortcuts_with_dialog(file_paths, drop_target)
+
+                    else:
+                        trash_action = menu.addAction("Move to Trash")
+                        menu.addSeparator()
+                        cancel_action = menu.addAction("Cancel")
+                        action = menu.exec(QCursor.pos())
+                        if action == trash_action:
+                            if sys.platform == 'win32':
+                                file_paths = [url.toLocalFile() for url in urls]
+                                windows_file_operations.move_to_recycle_bin(file_paths)
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"{e}")
         else:
@@ -1221,6 +1271,7 @@ if __name__ == "__main__":
     app.trash_name = "Trash"
     app.icon_size = 32
     app.icon = QFileIconProvider().icon(QFileIconProvider.IconType.Folder)
+    app.to_cut = False
 
     # Output not only to the console but also to the GUI
     try:
