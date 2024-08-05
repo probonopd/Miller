@@ -16,13 +16,20 @@ jobs:
         run: |
           pip install -r requirements-windows.txt
           pip install pyinstaller
+          pip install nuitka
 
-      - name: Build executable
+      - name: Build executable with PyInstaller
         run: |
           pyinstaller --windowed --name Spatial spatial.py
 
-      - name: Upload artifact
+      - name: Build executable with Nuitka
+        run: |
+          nuitka --standalone --windows-disable-console --output-dir=dist/nuitka Spatial.py
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v2
         with:
           name: Spatial
-          path: "dist/*"
+          path: |
+            dist/*  # PyInstaller output
+            dist/nuitka/*  # Nuitka output
