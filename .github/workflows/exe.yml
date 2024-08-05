@@ -24,7 +24,7 @@ jobs:
 
       - name: Build executable with Nuitka
         run: |
-          nuitka --standalone --windows-disable-console --output-dir=dist/nuitka Spatial.py
+          nuitka --standalone --windows-console-mode=disable --output-dir=dist/nuitka --verbose Spatial.py
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v2
