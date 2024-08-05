@@ -476,6 +476,8 @@ class SpatialFiler(QMainWindow):
         return max(item.width() for item in self.items) if self.items else 150
 
     def add_item(self, path, is_directory):
+        if any(item.path == path for item in self.items):
+            return
         position = QPoint(self.start_x + len(self.items) % 5 * (self.calculate_max_width() + self.horizontal_spacing), 
                           self.start_y + len(self.items) // 5 * (self.line_height + self.vertical_spacing))
         # Check whether a position is provided in the .DS_Spatial file; if yes, use it
