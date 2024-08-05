@@ -10,10 +10,10 @@ import subprocess
 import math
 import shutil
 
-from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo, QTimer, QRegularExpression
+from PyQt6.QtCore import Qt, QPoint, QSize, QDir, QRect, QMimeData, QUrl, QFileSystemWatcher, QFileInfo, QTimer, QRegularExpression, QObject, QEvent
 from PyQt6.QtGui import QFontMetrics, QPainter, QPen, QAction, QDrag, QColor, QPainter, QPen, QBrush, QPixmap, QKeySequence, QFont, QIcon, QShortcut, QRegularExpressionValidator, QCursor
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QScrollArea, QLabel, QSizePolicy, QMainWindow, QDialogButtonBox
-from PyQt6.QtWidgets import QStatusBar, QComboBox, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog, QLineEdit, QInputDialog
+from PyQt6.QtWidgets import QStatusBar, QComboBox, QFileIconProvider, QMenuBar, QGridLayout, QMessageBox, QMenu, QDialog, QLineEdit, QGraphicsScene, QGraphicsPixmapItem
 
 if sys.platform == "win32":
     from win32com.client import Dispatch
@@ -128,6 +128,21 @@ class SpatialFiler(QMainWindow):
         self.file_watcher.directoryChanged.connect(self.directory_changed)
         self.file_watcher.fileChanged.connect(self.file_changed)
         self.file_watcher.addPath(self.path)
+
+        # To keep track of spring-loaded folders needing to be closed
+        self.installEventFilter(self)
+
+    # To keep track of spring-loaded folders needing to be closed
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.DragLeave:
+            # Check whether mouse coordinates are inside or outside of the window, and print the result
+            mouse_is_inside = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
+            print("Mouse is inside:", mouse_is_inside)
+            if not mouse_is_inside and self.is_spring_opened:
+                self.close()
+            # Handle the drag leave event here
+            return True  # Return True if the event is handled
+        return super().eventFilter(obj, event)
 
     def keyPressEvent(self, event):
         # Handle Tab and Shift-Tab to select the next and previous item
@@ -532,16 +547,37 @@ class SpatialFiler(QMainWindow):
                     self.dragging = True
                     self.last_pos = adjusted_pos
                     self.update_menu_state()
-                    # Set mime data for all selected items
+
+                    # Create a QGraphicsScene to hold the icons
+                    scene = QGraphicsScene()
+                    icon_spacing = 10  # Space between icons
+                    x_offset = 0
+
+                    # Add each selected item's icon to the scene
+                    for item in self.selected_files:
+                        icon_pixmap = item.icon_label.pixmap()
+                        pixmap_item = QGraphicsPixmapItem(icon_pixmap)
+                        pixmap_item.setPos(x_offset, 0)  # Position the icon
+                        scene.addItem(pixmap_item)
+                        x_offset += icon_pixmap.width() + icon_spacing  # Update offset for next icon
+                        # FIXME: Use the items' real positions instead; can this be done without using a QGraphicsView?
+
+                    # Create a QPixmap from the scene
+                    scene_rect = scene.itemsBoundingRect()
+                    combined_pixmap = QPixmap(scene_rect.size().toSize())
+                    combined_pixmap.fill(QColor(0, 0, 0, 0))
+                    painter = QPainter(combined_pixmap)
+                    scene.render(painter, target=scene_rect, source=scene_rect)
+                    painter.end()
+
+                    # Set the combined pixmap for the drag
+                    drag = QDrag(self)
                     mime_data = QMimeData()
                     for item in self.selected_files:
                         mime_data.setUrls([QUrl.fromLocalFile(f.path) for f in self.selected_files])
-                    drag = QDrag(self)
                     drag.setMimeData(mime_data)
-                    drag.setPixmap(self.selected_files[0].icon_label.pixmap())
-                    # TODO: Make it so that the icon doesn't jump to be at the top left corner of the mouse cursor
-                    # FIXME: Instead of hardcoding the hot spot to be half the icon size, it should be the position of the mouse cursor relative to the item
-                    drag.setHotSpot(QPoint(int(app.icon_size/2), int(app.icon_size/2)))
+                    drag.setPixmap(combined_pixmap)
+                    drag.setHotSpot(QPoint(int(app.icon_size / 2), int(app.icon_size / 2)))
                     drag.exec()
             else:
                 self.is_selecting = True
@@ -658,17 +694,6 @@ class SpatialFiler(QMainWindow):
 
     def startDrag(self, event):
         self.initial_position = event.pos()
-
-    def dragLeaveEvent(self, event):
-        # If this window was spring-loaded, close it when the drag leaves the window
-        if self.is_spring_opened:
-            # FIXME: For some reason, the following line does not work. May need to iterate through all item rects
-            # to see if the mouse is within them (and possibly some margin)
-            if any(item.underMouse() for item in self.items):
-                event.ignore()
-            else:
-                self.close()
-                event.accept()
             
     def dropEvent(self, event):
         initial_position = self.initial_position
@@ -1128,6 +1153,14 @@ class Item(QWidget):
 
     def spring_open(self):
         self.open(event=None, spring_open=True)
+        
+        parent = self.parent()
+        while parent:
+            parent = parent.parent()
+            print(parent.__class__.__name__)
+            if parent.__class__.__name__ == "SpatialFiler" and not parent.is_desktop_window:
+                parent.close()
+
 
     def open(self, event=None, spring_open=False):
         print(f"Asked to open {self.path}")
