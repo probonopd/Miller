@@ -485,7 +485,7 @@ class SpatialFiler(QMainWindow):
                 try:
                     settings = json.load(file)
                     for item in settings["items"]:
-                        if item["name"] == robust_filename(path):
+                        if item["name"].replace("$Recycle.Bin", app.trash_name) == robust_filename(path):
                             position = QPoint(item["x"], item["y"])
                 except json.JSONDecodeError as e:
                     print(f"Error reading settings file: {e}")
