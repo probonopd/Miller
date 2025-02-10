@@ -29,6 +29,8 @@ Features:
 TODO/FIXME:
 * Spring-loaded folders are broken! dragMoveEvent never gets called?
 * When multiple items are dragged outside of the window, the items are not positioned at the correct coordinates (relative to each other like in the original window) in the new window.
+* Do not store the full path in the layout file, only the file name. This way, the layout can be restored even if the folder is moved.
+* Why is no filename shown underneath the icon for disks? Maybe first create all FileItems and then set their positions in a second loop? This way we could set a nice display title for disks.
 
 FOR TESTING:
 * WIndows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
@@ -259,6 +261,8 @@ class FileItem(QtWidgets.QGraphicsObject):
         self.icon = icon_provider.icon(file_info)
         icon_size = QtCore.QSize(32, 32)
         self.pixmap = self.icon.pixmap(icon_size)
+        if self.pixmap.width() < icon_size.width() or self.pixmap.height() < icon_size.height():
+            self.pixmap = self.pixmap.scaled(icon_size, QtCore.Qt.AspectRatioMode.KeepAspectRatio, QtCore.Qt.TransformationMode.SmoothTransformation)
 
         self.font = QtGui.QFont()
         self.font.setPointSize(8)
@@ -626,16 +630,26 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         menus.create_menus(self)
 
     def load_files(self):
+        
+        # Check if this is the Desktop in fullscreen mode
+        is_desktop_fullscreen = self.folder_path == QtCore.QStandardPaths.writableLocation(
+            QtCore.QStandardPaths.StandardLocation.DesktopLocation
+        )
+
         try:
             folder_files = os.listdir(self.folder_path)
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", f"Cannot read folder: {e}")
             return
-
-        # Check if this is the Desktop in fullscreen mode
-        is_desktop_fullscreen = self.folder_path == QtCore.QStandardPaths.writableLocation(
-            QtCore.QStandardPaths.StandardLocation.DesktopLocation
-        )
+        
+        # Add every disk in the system
+        if is_desktop_fullscreen:
+            print("Adding disks")
+            for disk in QtCore.QDir.drives():
+                # The name of the disk is the first part of the path, e.g. "C:" or "D:"
+                print(disk.canonicalFilePath())
+                disk_name = disk.canonicalFilePath()
+                folder_files.append(disk_name)
 
         # Load stored positions from layout file if available
         layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
@@ -646,94 +660,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                     stored_positions = json.load(f).get("items", {})
             except Exception as e:
                 print(f"Warning: Could not load layout file ({e})")
-
-        # Skip hidden/system files
-        folder_files = [name for name in folder_files if not name.startswith(".")]
-        folder_files = [name for name in folder_files if name.lower() not in ("desktop.ini", ".ds_store")]
-
-        occupied_positions = set()  # Store occupied positions
-
-        # Mark positions of already existing items
-        for item in self.file_items:
-            grid_x = round(item.x() / grid_width)
-            grid_y = round(item.y() / grid_height)
-            occupied_positions.add((grid_x, grid_y))
-
-        # Also mark stored positions to avoid overlapping them
-        for path, (pos_x, pos_y) in stored_positions.items():
-            grid_x = round(pos_x / grid_width)
-            grid_y = round(pos_y / grid_height)
-            occupied_positions.add((grid_x, grid_y))
-
-        def find_next_available_position():
-            """Finds the first free position based on layout direction."""
-            if is_desktop_fullscreen:
-                # Desktop: Move downward first, then shift left
-                x = (self.width() // grid_width) - 1  # Start at rightmost column
-                y = 0
-                while (x, y) in occupied_positions:
-                    y += 1  # Move downward
-                    if y * grid_height > self.height() - 2 * grid_height:
-                        y = 0  # Reset and shift left
-                        x -= 1
-            else:
-                # Normal case: Move right first, then shift down
-                x, y = 0, 0
-                while (x, y) in occupied_positions:
-                    x += 1
-                    if x * grid_width > self.width() - 2 * grid_width:
-                        x = 0
-                        y += 1
-
-            occupied_positions.add((x, y))
-            return QtCore.QPointF(x * grid_width, y * grid_height)
-
-        for name in sorted(folder_files):
-            full_path = os.path.join(self.folder_path, name)
-
-            # Skip items already in the scene
-            if any(item.file_path == full_path for item in self.file_items):
-                continue
-
-            # Restore position if stored, otherwise find a free one
-            if full_path in stored_positions:
-                pos_x, pos_y = stored_positions[full_path]
-                pos = QtCore.QPointF(pos_x, pos_y)
-            elif full_path in self.drop_target_positions:
-                pos = self.drop_target_positions.pop(full_path)
-            else:
-                pos = find_next_available_position()
-
-            # Create and add the new item
-            item = FileItem(full_path, pos)
-            item.openFolderRequested.connect(self.open_folder_from_item)
-            self.scene.addItem(item)
-            self.file_items.append(item)
-
-        # Calculate the bounding box of all items and set the scene rect accordingly.
-        scene_rect = self.scene.itemsBoundingRect()
-        self.scene.setSceneRect(scene_rect)
-
-        try:
-            folder_files = os.listdir(self.folder_path)
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Cannot read folder: {e}")
-            return
-
-        # Check if this window represents the desktop in fullscreen mode
-        is_desktop_fullscreen = self.folder_path == QtCore.QStandardPaths.writableLocation(
-            QtCore.QStandardPaths.StandardLocation.DesktopLocation
-        )
-
-        # Load stored positions from layout file if available
-        layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
-        stored_positions = {}
-        if os.path.exists(layout_file_path):
-            try:
-                with open(layout_file_path, "r") as f:
-                    stored_positions = json.load(f).get("items", {})
-            except Exception as e:
-                print(f"Warning: Could not load layout file ({e})")  # Non-blocking error
 
         # Skip hidden/system files
         folder_files = [name for name in folder_files if not name.startswith(".")]
@@ -816,7 +742,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             with open(layout_file_path, "w") as f:
                 json.dump(layout, f, indent=4)
         except:
-            pass
+            pass    
         # Blink the window title to indicate a save
         self.setWindowTitle(f"Saved: {self.windowTitle()}")
         QtCore.QTimer.singleShot(1000, lambda: self.setWindowTitle(self.windowTitle().replace("Saved: ", "")))
