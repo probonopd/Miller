@@ -17,12 +17,11 @@ class ConsoleOutputStream(io.TextIOBase):
         self.log_console.setReadOnly(True)
         self.log_console_window = QMainWindow()
         self.log_console_window.setCentralWidget(self.log_console)
-        self.log_console_window.setGeometry(0, 300, 600, 300)
         screen_geometry = self.log_console_window.screen().geometry()
         screen_height = screen_geometry.height()
         window_geometry = self.log_console_window.geometry()
         window_height = window_geometry.height()
-        self.log_console_window.setGeometry(0, screen_height - window_height, 600, 300)
+        self.log_console_window.setGeometry(0, screen_height - window_height, 800, 300)
         self.log_console_window.setWindowTitle('Log Console')
         # Autoscroll to the bottom
         self.log_console.verticalScrollBar().rangeChanged.connect(
@@ -60,6 +59,7 @@ class ConsoleOutputStream(io.TextIOBase):
         traceback_str = ''.join(traceback.format_exception(exc_type, exc_value, tb))
         message_box.setDetailedText(str(traceback_str))
         message_box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        message_box.setMinimumWidth(400)
         message_box.exec()
 
 class Tee(object):

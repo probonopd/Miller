@@ -27,26 +27,27 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
+* Spring-loaded folders are broken! dragMoveEvent never gets called?
 * When multiple items are dragged outside of the window, the items are not positioned at the correct coordinates (relative to each other like in the original window) in the new window.
-* When multiple items are dragged outside of the window, the free movement of the items needs to be reset to the original positions in the original window, like we do for a single item.
-* When refreshing a window, the scene is not positioned correctly; unlike what happens when the window is first opened or is resized.
 
-* During free movement, the position of the item relative to the mouse cursor is not maintained correctly. However, when dragging an item, the position is correct - it should be consistent between the two modes.
-
-* File operations also need to work with Cut/Copy/Paste from the main and context menus, not just drag-and-drop.
+FOR TESTING:
+* WIndows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
 """
 
-import os
-import sys
-import json
-import shutil
-import time
+import os, sys, signal, json, shutil, time
 
 from PyQt6 import QtWidgets, QtGui, QtCore
 
-# Name of the file used to store layout information in each folder.
+if sys.platform == "win32":
+    import ctypes
+    from win32com.client import Dispatch
+
+import getinfo, menus, log_console
+
 LAYOUT_FILENAME = "._layout.json"
 
+item_width = grid_width = 100
+item_height = grid_height = 60
 
 # ---------------- File Operation Thread (for copy/cut/paste and drag–drop operations) ----------------
 class FileOperationThread(QtCore.QThread):
@@ -95,6 +96,8 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
         self.setAcceptDrops(True)
         # Enable rubber band selection (allows Shift and drag–selection)
         self.setDragMode(QtWidgets.QGraphicsView.DragMode.RubberBandDrag)
+        self.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.spring_item = None
         # Timer used to trigger spring loaded folder opening
         self.spring_timer = QtCore.QTimer(self)
@@ -115,23 +118,43 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event: QtGui.QDragMoveEvent):
+        print("Drag move event")
         if event.mimeData().hasFormat("application/x-fileitem") or event.mimeData().hasFormat("application/x-fileitems"):
             event.acceptProposedAction()
             pos = event.position().toPoint()
             item = self.itemAt(pos)
+            print("Hovering over item:", item)
             if isinstance(item, FileItem) and item.is_folder:
-                # If we are hovering over a new folder icon, start the spring open timer
+                print("Hovering over folder in dragMoveEvent:", item.file_path)
                 if self.spring_item != item:
                     self.spring_item = item
                     self.spring_timer.start()
                     self.spring_close_timer.stop()
             else:
-                # If not hovering over the same folder, start the close timer for any spring–loaded window.
                 if self.spring_item is not None:
                     self.spring_timer.stop()
                     self.spring_close_timer.start()
         else:
             super().dragMoveEvent(event)
+
+    def mouseMoveEvent(self, event):
+        item = self.itemAt(event.pos())
+        print("Hovering over item in mouseMoveEvent:", item)
+        if item is not None and item.isSelected():
+            # If the item is selected, we should not trigger spring-loaded folder opening to prevent spring-opening the folder we are dragging.
+            self.spring_item = None
+            self.spring_timer.stop()
+            self.spring_close_timer.stop()
+        elif isinstance(item, FileItem) and item.is_folder:
+            if self.spring_item != item:
+                self.spring_item = item
+                self.spring_timer.start()
+                self.spring_close_timer.stop()
+        else:
+            self.spring_timer.stop()
+            self.spring_close_timer.start()
+
+        return super().mouseMoveEvent(event)
 
     def dragLeaveEvent(self, event: QtGui.QDragLeaveEvent):
         # When the drag leaves the view, cancel any spring timers.
@@ -155,11 +178,21 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
             else:
                 data = event.mimeData().data("application/x-fileitem")
                 file_paths = [bytes(data).decode("utf-8")]
+            # Cancel the operation if the source and destination folders are the same.
+            if os.path.dirname(file_paths[0]) == self.parent().folder_path:
+                # Free movement: Move the items to the drop position
+                for file_path in file_paths:
+                    item = next((item for item in self.scene().items() if isinstance(item, FileItem) and item.file_path == file_path), None)
+                    if item:
+                        item.setPos(drop_scene_pos - QtCore.QPointF(item.hotspot))
+                event.ignore()
+                return
             # Popup a menu to choose the action.
             menu = QtWidgets.QMenu(self)
             copy_action = menu.addAction("Copy")
             move_action = menu.addAction("Move")
             symlink_action = menu.addAction("Symlink")
+            menu.addSeparator()
             cancel_action = menu.addAction("Cancel")
             global_pos = self.mapToGlobal(event.position().toPoint())
             action = menu.exec(global_pos)
@@ -180,14 +213,14 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
             super().dropEvent(event)
 
     def handleSpringOpen(self):
-        # Called when the spring timer expires; if the cursor is still over the same folder, open it.
-        if self.spring_item is not None:
+        """Open a folder when hovering over it for a set time."""
+        if self.spring_item:
             current_item = self.itemAt(self.mapFromGlobal(QtGui.QCursor.pos()))
             if current_item == self.spring_item:
                 main_window = self.window()
                 if isinstance(main_window, SpatialFilerWindow):
-                    # Open the folder in spring–loaded mode
                     main_window.open_folder_from_item(self.spring_item.file_path, spring_loaded=True)
+            self.spring_item = None  # Reset to prevent multiple triggers
             self.spring_timer.stop()
 
     def handleSpringClose(self):
@@ -208,8 +241,9 @@ class FileItem(QtWidgets.QGraphicsObject):
     # Signal to request opening a folder.
     openFolderRequested = QtCore.pyqtSignal(str)
 
-    def __init__(self, file_path: str, pos: QtCore.QPointF, width: int = 80, height: int = 80):
+    def __init__(self, file_path: str, pos: QtCore.QPointF, width = item_width, height = item_height):
         super().__init__()
+        self.hotspot = None
         self.file_path = file_path
         self.width = width
         self.height = height
@@ -223,7 +257,7 @@ class FileItem(QtWidgets.QGraphicsObject):
         icon_provider = QtWidgets.QFileIconProvider()
         file_info = QtCore.QFileInfo(file_path)
         self.icon = icon_provider.icon(file_info)
-        icon_size = QtCore.QSize(48, 48)
+        icon_size = QtCore.QSize(32, 32)
         self.pixmap = self.icon.pixmap(icon_size)
 
         self.font = QtGui.QFont()
@@ -236,166 +270,263 @@ class FileItem(QtWidgets.QGraphicsObject):
         return QtCore.QRectF(0, 0, self.width, self.height + 20)
 
     def paint(self, painter: QtGui.QPainter, option: QtWidgets.QStyleOptionGraphicsItem, widget=None):
-        # Draw background rectangle.
-        if self.isSelected():
-            painter.setBrush(QtGui.QBrush(QtGui.QColor(200, 220, 255)))
-        else:
-            painter.setBrush(QtGui.QBrush(QtGui.QColor(0, 0, 0, 0)))
-        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 0)))
-        painter.drawRect(0, 0, self.width, self.height)
-
-        # Draw the icon centered.
+        # Ensure offsets are always defined
         pix_w = self.pixmap.width()
         pix_h = self.pixmap.height()
         offset_x = (self.width - pix_w) / 2
-        offset_y = 48 - pix_h
-        painter.drawPixmap(QtCore.QPointF(offset_x, offset_y), self.pixmap)
+        offset_y = 48 - pix_h - 12
 
-        # Draw the file/folder name.
-        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0)))
-        painter.setFont(self.font)
+        # Ensure text position calculations are always performed
+        metrics = QtGui.QFontMetrics(self.font)
         base_name = os.path.basename(self.file_path)
-        metrics = painter.fontMetrics()
         elided_text = metrics.elidedText(base_name, QtCore.Qt.TextElideMode.ElideMiddle, self.width)
         text_width = metrics.horizontalAdvance(elided_text)
-        painter.drawText(int((self.width - text_width) / 2), self.height - 15, elided_text)
+        text_height = metrics.height()
+        text_x = (self.width - text_width) / 2
+        text_y = self.height - int(text_height / 2)
+
+        # Draw selection highlight only around the icon and text
+        if self.isSelected():
+            painter.setBrush(QtGui.QBrush(QtGui.QColor(200, 220, 255, 100)))  # Semi-transparent blue
+            painter.setPen(QtGui.QPen(QtGui.QColor(100, 100, 255), 2))  # Blue border
+
+            # Draw the icon highlighted, meaning some blue overlay
+            self.highlighted_pixmap = self.pixmap.copy()
+            # Modify the pixmap to add a blue overlay but only where the icon is not transparent
+            painter.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_Multiply)
+            # Fill pixmap where it is not transparent with blue
+            painter.fillRect(QtCore.QRectF(offset_x, offset_y, pix_w, pix_h), QtGui.QColor(200, 220, 255, 100))
+            painter.drawPixmap(QtCore.QPointF(offset_x, offset_y), self.highlighted_pixmap)
+            
+            # Text highlight
+            painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 0)))
+            # TODO: Set different pen if user clicked on the text
+            text_rect = QtCore.QRectF(text_x, text_y - text_height, text_width, text_height)
+            painter.drawRect(text_rect)
+
+        # Draw the icon
+        painter.drawPixmap(QtCore.QPointF(offset_x, offset_y), self.pixmap)
+
+        # Draw the file/folder name
+        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0)))
+        painter.setFont(self.font)
+        painter.drawText(int(text_x), int(text_y), elided_text)
 
     def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        self.setOpacity(0.6)
         # Record the screen position where the press occurred.
         self.drag_start_position = event.screenPos()
         # Also store the current (original) scene position for potential reversion.
         self._original_pos = self.pos()
-        super().mousePressEvent(event)
+        
+        click_pos = event.pos()  # Local position relative to the item
+
+        # Calculate icon area
+        pix_w = self.pixmap.width()
+        pix_h = self.pixmap.height()
+        offset_x = (self.width - pix_w) / 2
+        offset_y = 48 - pix_h - 12
+        icon_rect = QtCore.QRectF(offset_x, offset_y, pix_w, pix_h)
+
+        # Calculate text area
+        metrics = QtGui.QFontMetrics(self.font)
+        base_name = os.path.basename(self.file_path)
+        elided_text = metrics.elidedText(base_name, QtCore.Qt.TextElideMode.ElideMiddle, self.width)
+        text_width = metrics.horizontalAdvance(elided_text)
+        text_height = metrics.height()
+        text_x = (self.width - text_width) / 2
+        text_y = self.height - int(text_height / 2)
+        text_rect = QtCore.QRectF(text_x, text_y - text_height, text_width, text_height)
+
+        # Accept click only if inside icon or text
+        if icon_rect.contains(click_pos) or text_rect.contains(click_pos):
+            super().mousePressEvent(event)
+        else:
+            event.ignore()
 
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        # Get the current global mouse position.
-        global_pos = event.screenPos()
-
-        # Check if the mouse is inside the window's frame.
+        # If the mouse is inside the main window, allow normal repositioning.
         if self.scene() and self.scene().views():
             main_window = self.scene().views()[0].window()
-            if main_window.frameGeometry().contains(global_pos):
-                # The mouse is inside the window: continue free repositioning.
+            if main_window.frameGeometry().contains(event.screenPos()):
                 super().mouseMoveEvent(event)
                 return
 
-        # The mouse is outside the window.
+        # Start the drag once the mouse has moved a threshold distance.
         if self.drag_start_position is None:
             self.drag_start_position = event.screenPos()
+        if (event.screenPos() - self.drag_start_position).manhattanLength() < 10:
+            # Not moved enough; let the default behavior run.
+            super().mouseMoveEvent(event)
+            return
 
-        # Calculate the distance moved from the original press position.
-        distance = (event.screenPos() - self.drag_start_position).manhattanLength()
-        if distance > 10:
-            # The mouse has moved enough outside the window: cancel any repositioning.
-            self.setPos(self._original_pos)
-            # Prepare to start a drag–drop operation.
-            drag = QtGui.QDrag(event.widget())
-            mime_data = QtCore.QMimeData()
-            selected = self.scene().selectedItems()
-            if len(selected) > 1:
-                # Handle dragging multiple items.
-                file_paths = [item.file_path for item in selected if isinstance(item, FileItem)]
-                mime_data.setData("application/x-fileitems", json.dumps(file_paths).encode("utf-8"))
-                # Create a composite pixmap for all selected items.
-                rect = QtCore.QRectF()
-                for item in selected:
-                    rect = rect.united(item.sceneBoundingRect())
-                pixmap = QtGui.QPixmap(int(rect.width()), int(rect.height()))
-                pixmap.fill(QtCore.Qt.GlobalColor.transparent)
-                painter = QtGui.QPainter(pixmap)
-                self.scene().render(painter, target=QtCore.QRectF(pixmap.rect()), source=rect)
-                painter.end()
-                drag.setPixmap(pixmap)
-            else:
-                # Single item drag.
-                mime_data.setData("application/x-fileitem", self.file_path.encode("utf-8"))
-                rect = self.boundingRect()
-                pixmap = QtGui.QPixmap(int(rect.width()), int(rect.height()))
-                pixmap.fill(QtCore.Qt.GlobalColor.transparent)
-                painter = QtGui.QPainter(pixmap)
+        # Cancel free repositioning.
+        self.setPos(self._original_pos)
+
+        # Prepare the drag operation.
+        drag = QtGui.QDrag(event.widget())
+        mime_data = QtCore.QMimeData()
+        selected_items = self.scene().selectedItems()
+
+        # Hide all items during drag.
+        for item in selected_items:
+            item.setOpacity(0.0)
+
+        # --- Single-Item Case ---
+        if len(selected_items) == 1:
+            mime_data.setData("application/x-fileitem", self.file_path.encode("utf-8"))
+            rect = self.boundingRect()
+            pixmap = QtGui.QPixmap(int(rect.width()), int(rect.height()))
+            pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+            painter = QtGui.QPainter(pixmap)
+            option = QtWidgets.QStyleOptionGraphicsItem()
+            if self.scene().views():
+                option.widget = self.scene().views()[0]
+            self.paint(painter, option)
+            painter.end()
+            # The hotspot is the mouse position in local coordinates.
+            item.hotspot = QtCore.QPoint(int(event.pos().x()), int(event.pos().y()))
+        # --- Multiple-Item Case ---
+        else:
+            # Save the file paths.
+            file_paths = [item.file_path for item in selected_items if isinstance(item, FileItem)]
+            mime_data.setData("application/x-fileitems", json.dumps(file_paths).encode("utf-8"))
+            # Compute the union rectangle of all items in scene coordinates.
+            union_rect = None
+            for item in selected_items:
+                # Map the item’s boundingRect() into scene coordinates.
+                item_scene_rect = item.mapToScene(item.boundingRect()).boundingRect()
+                union_rect = item_scene_rect if union_rect is None else union_rect.united(item_scene_rect)
+            # Create a pixmap the size of the union rectangle.
+            pixmap = QtGui.QPixmap(int(union_rect.width()), int(union_rect.height()))
+            pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+            painter = QtGui.QPainter(pixmap)
+            # Paint each selected item at the proper offset.
+            for item in selected_items:
+                # Compute the top-left in scene coordinates.
+                item_scene_top_left = item.mapToScene(item.boundingRect().topLeft())
+                offset = item_scene_top_left - union_rect.topLeft()
+                painter.save()
+                painter.translate(offset)
                 option = QtWidgets.QStyleOptionGraphicsItem()
                 if self.scene().views():
                     option.widget = self.scene().views()[0]
-                self.paint(painter, option)
-                painter.end()
-                drag.setPixmap(pixmap)
-            drag.setMimeData(mime_data)
-            drag.exec(QtCore.Qt.DropAction.MoveAction | QtCore.Qt.DropAction.CopyAction)
-            self.drag_start_position = None
-            return
+                item.paint(painter, option)
+                painter.restore()
+            painter.end()
+            # Compute the hotspot for the clicked item:
+            # Convert its local event position to scene coordinates, then subtract union_rect.topLeft().
+            hotspot_scene = self.mapToScene(event.pos())
+            hotspot_point = hotspot_scene - union_rect.topLeft()
+            item.hotspot = QtCore.QPoint(int(hotspot_point.x()), int(hotspot_point.y()))
 
-        # Otherwise, continue with the default free repositioning.
-        super().mouseMoveEvent(event)
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(item.hotspot)
+        drag.setMimeData(mime_data)
+        drag.exec(QtCore.Qt.DropAction.MoveAction | QtCore.Qt.DropAction.CopyAction)
+
+        # Restore opacities.
+        for item in selected_items:
+            item.setOpacity(1.0)
+
+        self.drag_start_position = None
+        event.accept()
 
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         self.setOpacity(1.0)
+
+        if self.drag_start_position is not None:
+            distance = (event.screenPos() - self.drag_start_position).manhattanLength()
+            if self.scene() and self.scene().views() and distance > 2:
+                main_window = self.scene().views()[0].window()
+                if isinstance(main_window, SpatialFilerWindow):
+                    main_window.save_layout()
+
+        self.drag_start_position = None  # Reset the variable
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        # On double-click, open folder or launch file.
-        if self.is_folder:
-            self.openFolderRequested.emit(self.file_path)
-        else:
-            url = QtCore.QUrl.fromLocalFile(self.file_path)
-            QtGui.QDesktopServices.openUrl(url)
+        self.open_item()
         super().mouseDoubleClickEvent(event)
 
+    def resolve_lnk(self, path):
+        """Resolves a Windows .lnk file to its target using ctypes."""
+        if not path.lower().endswith(".lnk"):
+            return path
+
+        shell = Dispatch("WScript.Shell")
+        shortcut = shell.CreateShortcut(path)
+        return shortcut.TargetPath
+
+    def open_item(self):
+        """Opens a folder or launches a file."""
+        # Special case: On Windows, .lnk files are shortcuts to files or folders.
+        target_path = self.file_path
+        if os.name == "nt" and self.file_path.lower().endswith(".lnk"):
+            target_path = self.resolve_lnk(self.file_path)
+
+        if os.path.isdir(target_path):
+            self.openFolderRequested.emit(target_path)
+        else:
+            url = QtCore.QUrl.fromLocalFile(target_path)
+            QtGui.QDesktopServices.openUrl(url)
+
+        # TODO: Animate the item when opened: Increase size x2 and fade out, then reset.
+
     def contextMenuEvent(self, event: QtWidgets.QGraphicsSceneContextMenuEvent):
-        # Context menu with Open, Get Info, and Delete.
+        """Right-click selects the item before opening the context menu."""
+        if not self.isSelected():  
+            # Select this item and deselect others unless Shift/Ctrl is pressed
+            modifiers = QtWidgets.QApplication.keyboardModifiers()
+            if not (modifiers & QtCore.Qt.KeyboardModifier.ControlModifier or 
+                    modifiers & QtCore.Qt.KeyboardModifier.ShiftModifier):
+                self.scene().clearSelection()  # Deselect all if no modifier is pressed
+            self.setSelected(True)  # Select right-clicked item
+
+        # Create context menu
         menu = QtWidgets.QMenu()
         open_action = menu.addAction("Open")
         info_action = menu.addAction("Get Info...")
         delete_action = menu.addAction("Delete")
+
         action = menu.exec(event.screenPos())
+
         if action == open_action:
             if self.is_folder:
                 self.openFolderRequested.emit(self.file_path)
             else:
                 url = QtCore.QUrl.fromLocalFile(self.file_path)
                 QtGui.QDesktopServices.openUrl(url)
+
         elif action == info_action:
             self.show_info()
+
         elif action == delete_action:
-            reply = QtWidgets.QMessageBox.question(
-                None, "Delete Confirmation",
-                f"Are you sure you want to delete {os.path.basename(self.file_path)}?",
-                QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No
-            )
-            if reply == QtWidgets.QMessageBox.StandardButton.Yes:
-                try:
-                    if os.path.islink(self.file_path):
-                        os.remove(self.file_path)
-                    elif os.path.isdir(self.file_path) and not os.path.islink(self.file_path):
-                        shutil.rmtree(self.file_path)
-                    else:
-                        os.remove(self.file_path)
-                    if self.scene():
-                        self.scene().removeItem(self)
-                except Exception as e:
-                    QtWidgets.QMessageBox.critical(None, "Error", f"Error deleting file: {e}")
+            # Call delete_selected() from the main window
+            main_window = self.scene().views()[0].window()
+            if isinstance(main_window, SpatialFilerWindow):
+                main_window.delete_selected()
+
 
     def show_info(self):
-        try:
-            info = os.stat(self.file_path)
-            size = info.st_size
-            mtime = time.ctime(info.st_mtime)
-            ctime = time.ctime(info.st_ctime)
-            info_text = (f"Path: {self.file_path}\nSize: {size} bytes\n"
-                         f"Modified: {mtime}\nCreated: {ctime}")
-            QtWidgets.QMessageBox.information(None, "File Info", info_text)
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(None, "Error", f"Could not retrieve file info: {e}")
+        main_window = self.scene().views()[0].window()  # Get the main window
+        if isinstance(main_window, SpatialFilerWindow):
+            main_window.get_info()
+
 
 
 # ---------------- Spatial Filer Window (main file/folder view) ----------------
 class SpatialFilerWindow(QtWidgets.QMainWindow):
+
+    selectionChanged = QtCore.pyqtSignal()
+
     # Global registry of open windows by folder path.
     open_windows = {}
 
     def __init__(self, folder_path: str, layout_data: dict = None):
         super().__init__()
+
         self.folder_path = folder_path
+
         self.setWindowTitle(f"Spatial Filer - {os.path.basename(folder_path)}")
         self.setGeometry(100, 100, 800, 600)
         self.spring_loaded = False  # will be set True if opened via spring–load
@@ -433,96 +564,66 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         self.watcher.addPath(self.folder_path)
         self.watcher.directoryChanged.connect(self.refresh_view)
 
+        # Emit "selectionChanged" signal when self.scene.selectionChanged
+        self.scene.selectionChanged.connect(self.selectionChanged.emit)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.scene.setSceneRect(0, 0, event.size().width(), event.size().height())
+        self.update_scene_rect()
+
+    def go_home(self):
+        """Open the user's home directory."""
+        home_dir = os.path.expanduser("~")
+        SpatialFilerWindow.get_or_create_window(home_dir)
+
+    def go_trash(self):
+        """Open the Trash directory."""
+        if os.name == "nt":
+            trash_dir = os.path.join(os.getenv('USERPROFILE'), 'Recycle Bin')
+        else:
+            trash_dir = os.path.expanduser("~/.local/share/Trash/files")
+        SpatialFilerWindow.get_or_create_window(trash_dir)
+
+    def go_drive(self, drive):
+        """Open a specific drive (Windows only)."""
+        SpatialFilerWindow.get_or_create_window(drive.replace("\\", "/"))
+
+    def has_selected_items(self):
+        """Check if any item is selected. Returns True if at least one item is selected."""
+        return any(item.isSelected() for item in self.file_items)
+    
+    def has_trash_items(self):
+        """Check if any item is in the Trash folder."""
+        print("TODO: Implement has_trash_items()")
+        return False
+    
+    def move_to_trash(self):
+        # Use file operation thread to move selected items to Trash.
+        QtWidgets.QMessageBox.information(self, "Move to Trash", "Not implemented yet.")
+
+    def quit_application(self):
+        """Exit the application."""
+        QtWidgets.QApplication.quit()
+
+    def empty_trash(self):
+        """Delete all files in the Trash folder."""
+        if os.name == "nt":
+            trash_dir = os.path.join(os.getenv('USERPROFILE'), 'Recycle Bin')
+        else:
+            trash_dir = os.path.expanduser("~/.local/share/Trash/files")
+        try:
+            for file in os.listdir(trash_dir):
+                file_path = os.path.join(trash_dir, file)
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+                else:
+                    os.remove(file_path)
+            QtWidgets.QMessageBox.information(self, "Trash", "Trash emptied successfully.")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to empty trash: {e}")
 
     def create_menus(self):
-        menubar = self.menuBar()
-
-        # File Menu
-        file_menu = menubar.addMenu("File")
-        open_folder_action = QtGui.QAction("Open Folder", self)
-        open_folder_action.setShortcut("Ctrl+O")
-        open_folder_action.triggered.connect(self.open_folder)
-        file_menu.addAction(open_folder_action)
-
-        new_folder_action = QtGui.QAction("New Folder", self)
-        new_folder_action.setShortcut("Ctrl+Shift+N")
-        new_folder_action.triggered.connect(self.new_folder)
-        file_menu.addAction(new_folder_action)
-        file_menu.addSeparator()
-
-        get_info_action = QtGui.QAction("Get Info...", self)
-        get_info_action.setShortcut("Ctrl+I")
-        get_info_action.triggered.connect(self.get_info)
-        file_menu.addAction(get_info_action)
-        file_menu.addSeparator()
-
-        exit_action = QtGui.QAction("Exit", self)
-        exit_action.setShortcut("Ctrl+Q")
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
-
-        # Edit Menu
-        edit_menu = menubar.addMenu("Edit")
-        copy_action = QtGui.QAction("Copy", self)
-        copy_action.setShortcut("Ctrl+C")
-        copy_action.triggered.connect(self.copy_selected)
-        edit_menu.addAction(copy_action)
-
-        cut_action = QtGui.QAction("Cut", self)
-        cut_action.setShortcut("Ctrl+X")
-        cut_action.triggered.connect(self.cut_selected)
-        edit_menu.addAction(cut_action)
-
-        paste_action = QtGui.QAction("Paste", self)
-        paste_action.setShortcut("Ctrl+V")
-        paste_action.triggered.connect(self.paste_items)
-        edit_menu.addAction(paste_action)
-        edit_menu.addSeparator()
-
-        delete_action = QtGui.QAction("Delete", self)
-        delete_action.setShortcut("Delete")
-        delete_action.triggered.connect(self.delete_selected)
-        edit_menu.addAction(delete_action)
-
-        select_all_action = QtGui.QAction("Select All", self)
-        select_all_action.setShortcut("Ctrl+A")
-        select_all_action.triggered.connect(self.select_all)
-        edit_menu.addAction(select_all_action)
-
-        # View Menu
-        view_menu = menubar.addMenu("View")
-        refresh_action = QtGui.QAction("Refresh", self)
-        refresh_action.setShortcut("F5")
-        refresh_action.triggered.connect(self.refresh_view)
-        view_menu.addAction(refresh_action)
-
-        align_action = QtGui.QAction("Align to Grid", self)
-        align_action.setShortcut("Ctrl+G")
-        align_action.triggered.connect(self.align_to_grid)
-        view_menu.addAction(align_action)
-
-        sort_menu = view_menu.addMenu("Sort")
-        sort_name = QtGui.QAction("By Name", self)
-        sort_name.triggered.connect(lambda: self.sort_items("name"))
-        sort_menu.addAction(sort_name)
-        sort_date = QtGui.QAction("By Date", self)
-        sort_date.triggered.connect(lambda: self.sort_items("date"))
-        sort_menu.addAction(sort_date)
-        sort_size = QtGui.QAction("By Size", self)
-        sort_size.triggered.connect(lambda: self.sort_items("size"))
-        sort_menu.addAction(sort_size)
-        sort_type = QtGui.QAction("By Type", self)
-        sort_type.triggered.connect(lambda: self.sort_items("type"))
-        sort_menu.addAction(sort_type)
-
-        # Help Menu (now without Get Info...)
-        help_menu = menubar.addMenu("Help")
-        about_action = QtGui.QAction("About", self)
-        about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
+        menus.create_menus(self)
 
     def load_files(self):
         try:
@@ -531,31 +632,173 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "Error", f"Cannot read folder: {e}")
             return
 
-        # Skip hidden files/folders and system files.
+        # Check if this is the Desktop in fullscreen mode
+        is_desktop_fullscreen = self.folder_path == QtCore.QStandardPaths.writableLocation(
+            QtCore.QStandardPaths.StandardLocation.DesktopLocation
+        )
+
+        # Load stored positions from layout file if available
+        layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
+        stored_positions = {}
+        if os.path.exists(layout_file_path):
+            try:
+                with open(layout_file_path, "r") as f:
+                    stored_positions = json.load(f).get("items", {})
+            except Exception as e:
+                print(f"Warning: Could not load layout file ({e})")
+
+        # Skip hidden/system files
         folder_files = [name for name in folder_files if not name.startswith(".")]
         folder_files = [name for name in folder_files if name.lower() not in ("desktop.ini", ".ds_store")]
 
-        margin = 100
-        x, y = 0, 0
+        occupied_positions = set()  # Store occupied positions
+
+        # Mark positions of already existing items
+        for item in self.file_items:
+            grid_x = round(item.x() / grid_width)
+            grid_y = round(item.y() / grid_height)
+            occupied_positions.add((grid_x, grid_y))
+
+        # Also mark stored positions to avoid overlapping them
+        for path, (pos_x, pos_y) in stored_positions.items():
+            grid_x = round(pos_x / grid_width)
+            grid_y = round(pos_y / grid_height)
+            occupied_positions.add((grid_x, grid_y))
+
+        def find_next_available_position():
+            """Finds the first free position based on layout direction."""
+            if is_desktop_fullscreen:
+                # Desktop: Move downward first, then shift left
+                x = (self.width() // grid_width) - 1  # Start at rightmost column
+                y = 0
+                while (x, y) in occupied_positions:
+                    y += 1  # Move downward
+                    if y * grid_height > self.height() - 2 * grid_height:
+                        y = 0  # Reset and shift left
+                        x -= 1
+            else:
+                # Normal case: Move right first, then shift down
+                x, y = 0, 0
+                while (x, y) in occupied_positions:
+                    x += 1
+                    if x * grid_width > self.width() - 2 * grid_width:
+                        x = 0
+                        y += 1
+
+            occupied_positions.add((x, y))
+            return QtCore.QPointF(x * grid_width, y * grid_height)
+
         for name in sorted(folder_files):
             full_path = os.path.join(self.folder_path, name)
-            if os.path.isfile(full_path) or os.path.isdir(full_path):
-                if self.layout_data.get("items", {}).get(full_path):
-                    pos_x, pos_y = self.layout_data["items"][full_path]
-                elif full_path in self.drop_target_positions:
-                    pos = self.drop_target_positions.pop(full_path)
-                    pos_x, pos_y = pos.x(), pos.y()
-                else:
-                    pos_x, pos_y = x, y
-                    x += margin
-                    if x > self.width() - margin:
+
+            # Skip items already in the scene
+            if any(item.file_path == full_path for item in self.file_items):
+                continue
+
+            # Restore position if stored, otherwise find a free one
+            if full_path in stored_positions:
+                pos_x, pos_y = stored_positions[full_path]
+                pos = QtCore.QPointF(pos_x, pos_y)
+            elif full_path in self.drop_target_positions:
+                pos = self.drop_target_positions.pop(full_path)
+            else:
+                pos = find_next_available_position()
+
+            # Create and add the new item
+            item = FileItem(full_path, pos)
+            item.openFolderRequested.connect(self.open_folder_from_item)
+            self.scene.addItem(item)
+            self.file_items.append(item)
+
+        # Calculate the bounding box of all items and set the scene rect accordingly.
+        scene_rect = self.scene.itemsBoundingRect()
+        self.scene.setSceneRect(scene_rect)
+
+        try:
+            folder_files = os.listdir(self.folder_path)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", f"Cannot read folder: {e}")
+            return
+
+        # Check if this window represents the desktop in fullscreen mode
+        is_desktop_fullscreen = self.folder_path == QtCore.QStandardPaths.writableLocation(
+            QtCore.QStandardPaths.StandardLocation.DesktopLocation
+        )
+
+        # Load stored positions from layout file if available
+        layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
+        stored_positions = {}
+        if os.path.exists(layout_file_path):
+            try:
+                with open(layout_file_path, "r") as f:
+                    stored_positions = json.load(f).get("items", {})
+            except Exception as e:
+                print(f"Warning: Could not load layout file ({e})")  # Non-blocking error
+
+        # Skip hidden/system files
+        folder_files = [name for name in folder_files if not name.startswith(".")]
+        folder_files = [name for name in folder_files if name.lower() not in ("desktop.ini", ".ds_store")]
+
+        occupied_positions = set()  # Store occupied positions
+
+        # Mark positions of already existing items
+        for item in self.file_items:
+            grid_x = round(item.x() / grid_width)
+            grid_y = round(item.y() / grid_height)
+            occupied_positions.add((grid_x, grid_y))
+
+        # Also mark stored positions to avoid overlapping them
+        for path, (pos_x, pos_y) in stored_positions.items():
+            grid_x = round(pos_x / grid_width)
+            grid_y = round(pos_y / grid_height)
+            occupied_positions.add((grid_x, grid_y))
+
+        def find_next_available_position():
+            """Finds the first free position based on layout direction."""
+            if is_desktop_fullscreen:
+                # Desktop: Layout from top-right to bottom-left
+                x = (self.width() // grid_width) - 1
+                y = 0
+                while (x, y) in occupied_positions:
+                    x -= 1  # Move left
+                    if x < 0:  # Move to next row if needed
+                        x = (self.width() // grid_width) - 1
+                        y += 1
+            else:
+                # Normal case: Layout from top-left to bottom-right
+                x, y = 0, 0
+                while (x, y) in occupied_positions:
+                    x += 1  # Move right
+                    if x * grid_width > self.width() - 2 * grid_width:
                         x = 0
-                        y += margin
-                item = FileItem(full_path, QtCore.QPointF(pos_x, pos_y))
-                item.openFolderRequested.connect(self.open_folder_from_item)
-                self.scene.addItem(item)
-                self.file_items.append(item)
-        self.scene.setSceneRect(0, 0, x, y + margin)
+                        y += 1
+
+            occupied_positions.add((x, y))
+            return QtCore.QPointF(x * grid_width, y * grid_height)
+
+        for name in sorted(folder_files):
+            full_path = os.path.join(self.folder_path, name)
+
+            # Skip items already in the scene
+            if any(item.file_path == full_path for item in self.file_items):
+                continue
+
+            # Restore position if stored, otherwise find a free one
+            if full_path in stored_positions:
+                pos_x, pos_y = stored_positions[full_path]
+                pos = QtCore.QPointF(pos_x, pos_y)
+            elif full_path in self.drop_target_positions:
+                pos = self.drop_target_positions.pop(full_path)
+            else:
+                pos = find_next_available_position()
+
+            # Create and add the new item
+            item = FileItem(full_path, pos)
+            item.openFolderRequested.connect(self.open_folder_from_item)
+            self.scene.addItem(item)
+            self.file_items.append(item)
+
+        self.update_scene_rect()
 
     def get_layout(self) -> dict:
         layout = {"items": {}}
@@ -572,8 +815,11 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         try:
             with open(layout_file_path, "w") as f:
                 json.dump(layout, f, indent=4)
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Error saving layout: {e}")
+        except:
+            pass
+        # Blink the window title to indicate a save
+        self.setWindowTitle(f"Saved: {self.windowTitle()}")
+        QtCore.QTimer.singleShot(1000, lambda: self.setWindowTitle(self.windowTitle().replace("Saved: ", "")))
 
     def open_folder(self):
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Folder", self.folder_path)
@@ -612,6 +858,27 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                     QtWidgets.QMessageBox.critical(self, "Error", f"Error deleting {item.file_path}: {e}")
             self.update_status_bar()
 
+    def update_scene_rect(self):
+        """Ensure the scene fits all items without shifting them unexpectedly."""
+        if self.file_items:
+            bounding_rect = self.scene.itemsBoundingRect()
+            visible_rect = self.view.mapToScene(self.view.rect()).boundingRect()
+            # The same as above but without window borders, decorations, scrollbars, etc.
+            # visible_rect = self.view.mapToScene(self.view.viewport().rect()).boundingRect()
+            # Get the width of a vertical scrollbar
+            scrollbar_width = self.view.verticalScrollBar().width()
+            # Set the scene rect to the maximum of the two
+            self.scene.setSceneRect(0, 0, max(visible_rect.width(), bounding_rect.width()), max(visible_rect.height(), bounding_rect.height()))
+        else:
+            self.scene.setSceneRect(0, 0, self.width(), self.height())
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts that have no menu item/action."""
+        if event.key() == QtCore.Qt.Key.Key_F5:
+            self.refresh_view()
+        else:
+            super().keyPressEvent(event)
+
     def refresh_view(self):
         self.layout_data = self.get_layout()  # store current positions
         for item in self.file_items:
@@ -619,17 +886,19 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         self.file_items.clear()
         self.load_files()
         self.update_status_bar()
-        self.scene.setSceneRect(0, 0, self.width(), self.height())
+        self.update_scene_rect() 
 
     def align_to_grid(self):
-        grid_size = 80
         for item in self.file_items:
-            new_x = round(item.x() / grid_size) * grid_size
-            new_y = round(item.y() / grid_size) * grid_size
+            new_x = round(item.x() / grid_width) * grid_width
+            new_y = round(item.y() / grid_height) * grid_height
             item.setPos(new_x, new_y)
         self.update_status_bar()
+        self.update_scene_rect()
 
     def sort_items(self, criterion):
+        """Sort items and layout them correctly based on the window type."""
+        
         def get_key(item):
             try:
                 if criterion == "name":
@@ -643,51 +912,48 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             except Exception:
                 return 0
 
+        # Check if this is the Desktop in fullscreen mode
+        is_desktop_fullscreen = self.folder_path == QtCore.QStandardPaths.writableLocation(
+            QtCore.QStandardPaths.StandardLocation.DesktopLocation
+        )
+
+        # Sort items based on the selected criterion
         sorted_items = sorted(self.file_items, key=get_key)
-        margin = 100
-        x, y = 0, 0
-        for item in sorted_items:
-            item.setPos(x, y)
-            x += margin
-            if x > self.width() - margin:
-                x = 0
-                y += margin
-        self.update_status_bar()
+
+        occupied_positions = set()
+
+        if is_desktop_fullscreen:
+            # Desktop: Move downward first, then shift left
+            x = (self.width() // grid_width) - 1  # Start at rightmost column
+            y = 0
+            for item in sorted_items:
+                while (x, y) in occupied_positions:
+                    y += 1  # Move downward
+                    if y * grid_height > self.height() - 2 * grid_height:
+                        y = 0  # Reset and shift left
+                        x -= 1
+                item.setPos(QtCore.QPointF(x * grid_width, y * grid_height))
+                occupied_positions.add((x, y))
+        else:
+            # Normal case: Move right first, then shift down
+            x, y = 0, 0
+            for item in sorted_items:
+                while (x, y) in occupied_positions:
+                    x += 1  # Move right
+                    if x * grid_width > self.width() - grid_width:
+                        x = 0
+                        y += 1
+                item.setPos(QtCore.QPointF(x * grid_width, y * grid_height))
+                occupied_positions.add((x, y))
+        
+        self.update_scene_rect()
 
     def update_status_bar(self):
         self.statusBar().showMessage(f"Folder: {self.folder_path} | Items: {len(self.file_items)}")
 
     def get_info(self):
-        selected = self.scene.selectedItems()
-        if selected:
-            if len(selected) == 1:
-                try:
-                    st = os.stat(selected[0].file_path)
-                    size = st.st_size
-                    mtime = time.ctime(st.st_mtime)
-                    ctime = time.ctime(st.st_ctime)
-                    info_text = (f"Path: {selected[0].file_path}\nSize: {size} bytes\n"
-                                 f"Modified: {mtime}\nCreated: {ctime}")
-                except Exception as e:
-                    info_text = f"Error retrieving info: {e}"
-                QtWidgets.QMessageBox.information(self, "Info", info_text)
-            else:
-                info_text = ""
-                total_size = 0
-                for item in selected:
-                    try:
-                        st = os.stat(item.file_path)
-                        size = st.st_size
-                        total_size += size
-                        info_text += f"{os.path.basename(item.file_path)}: {size} bytes\n"
-                    except Exception as e:
-                        info_text += f"{os.path.basename(item.file_path)}: error\n"
-                info_text += f"\nTotal items: {len(selected)}\nTotal size: {total_size} bytes"
-                QtWidgets.QMessageBox.information(self, "Selected Items Info", info_text)
-        else:
-            QtWidgets.QMessageBox.information(
-                self, "Folder Info", f"Folder: {self.folder_path}\nItems: {len(self.file_items)}"
-            )
+        selected_items = self.scene.selectedItems()
+        getinfo.FileInfoDialog(selected_items, self).exec()
 
     def process_drop_operation(self, src_file, operation, drop_pos=None):
         # Accept either a single file path (string) or a list of paths.
@@ -715,7 +981,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         self.op_thread = FileOperationThread(operations, op_type, total_size)
         self.op_thread.progress.connect(progress_dialog.setValue)
-        self.op_thread.error.connect(lambda msg: QtWidgets.QMessageBox.critical(self, "Error", msg))
+        self.op_thread.error.connect(lambda msg: (progress_dialog.close(), QtWidgets.QMessageBox.critical(self, "Error", msg)))
         self.op_thread.finished.connect(lambda: (progress_dialog.close(), self.refresh_view()))
         progress_dialog.canceled.connect(self.op_thread.cancel)
         self.op_thread.start()
@@ -812,7 +1078,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             del SpatialFilerWindow.open_windows[self.folder_path]
         super().closeEvent(event)
 
-    @staticmethod
+    @staticmethod # This means the method can be called on the class itself, without an instance.
     def get_or_create_window(folder_path, spring_loaded: bool = False):
         if folder_path in SpatialFilerWindow.open_windows:
             window = SpatialFilerWindow.open_windows[folder_path]
@@ -830,29 +1096,76 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                         layout_data = json.load(f)
                 except Exception:
                     pass
-            new_window = SpatialFilerWindow(folder_path, layout_data)
-            new_window.spring_loaded = spring_loaded
-            new_window.show()
-            return new_window
 
+            if os.path.exists(folder_path) and os.access(folder_path, os.R_OK):
+                new_window = SpatialFilerWindow(folder_path, layout_data)
+                new_window.spring_loaded = spring_loaded
+                new_window.show()
+                return new_window
+            else:
+                QtWidgets.QMessageBox.critical(None, "Error", f"Cannot access folder: {folder_path}")
+                return None
+
+    def selectedItems(self):
+        return self.scene.selectedItems()
 
 # ---------------- Main Application Object ----------------
 class MainObject:
     def __init__(self):
         desktop = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.StandardLocation.DesktopLocation)
-        for screen in QtWidgets.QApplication.screens():
-            desktop_window = SpatialFilerWindow.get_or_create_window(desktop)
-            desktop_window.setWindowFlags(QtCore.Qt.WindowType.FramelessWindowHint)
-            desktop_window.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnBottomHint)
-            desktop_window.move(screen.geometry().x(), screen.geometry().y())
-            desktop_window.resize(screen.geometry().width(), screen.geometry().height())
-            desktop_window.show()
+        # If the desktop directory does not exist, create it.
+        if not os.path.exists(desktop):
+            os.makedirs(desktop)
+        screen = QtWidgets.QApplication.primaryScreen()
+        desktop_window = SpatialFilerWindow.get_or_create_window(desktop)
+        desktop_window.setWindowFlags(QtCore.Qt.WindowType.FramelessWindowHint)
+        desktop_window.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnBottomHint)
+        desktop_window.move(screen.geometry().x(), screen.geometry().y())
+        desktop_window.resize(screen.geometry().width(), screen.geometry().height())
+        desktop_window.view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        desktop_window.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        desktop_window.statusBar().hide()
+        # Set the background color of the desktop window to gray
+        desktop_window.view.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(128, 128, 128)))
+        # If we are running on X11, set the desktop window to be the root window
+        if "DISPLAY" in os.environ:
+            # Set a hint that this is the desktop window
+            desktop_window.view.viewport().setWindowFlags(QtCore.Qt.WindowType.X11BypassWindowManagerHint)
+            desktop_window.view.viewport().setProperty("_q_desktop", True)
 
-def main():
-    app = QtWidgets.QApplication(sys.argv)
-    main_obj = MainObject()
-    sys.exit(app.exec())
+        # If we are runnnig on Wayland, set the desktop window to be the root window
+        if "WAYLAND_DISPLAY" in os.environ:
+            print("FIXME: Wayland: How to set the desktop window to be the root window on Wayland?")
 
+        # On Windows, get the wallpaper and set it as the background of the window
+        if sys.platform == "win32":
+            shell = Dispatch("WScript.Shell")
+            windows_wallpaper_path = os.path.normpath(shell.RegRead("HKEY_CURRENT_USER\\Control Panel\\Desktop\\Wallpaper")).replace("\\", "/")
+            if windows_wallpaper_path != "." and os.path.exists(windows_wallpaper_path):
+                desktop_window.view.setBackgroundBrush(QtGui.QBrush(QtGui.QPixmap(windows_wallpaper_path).scaled(desktop_window.width(),
+                                                                                                                 desktop_window.height(),
+                                                                                                                 QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                                                                                                 QtCore.Qt.TransformationMode.SmoothTransformation)))
+                 
+        desktop_window.show()
+        self.desktop_window = desktop_window
 
 if __name__ == "__main__":
-    main()
+    # Ctrl-C quits
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    
+    app = QtWidgets.QApplication(sys.argv)
+    app.setStyle("Fusion")
+
+    if "log_console" in sys.modules:
+        app.log_console = log_console.ConsoleOutputStream()
+        sys.stdout = log_console.Tee(sys.stdout, app.log_console)
+        sys.stderr = log_console.Tee(sys.stderr, app.log_console)
+
+    m = MainObject()
+
+    # Check for the presence of WAYLAND_DISPLAY and show info box for Wayland users
+    if "WAYLAND_DISPLAY" in os.environ:
+        QtWidgets.QMessageBox.information(m.desktop_window, "Wayland", "Spatial Filer does not work properly on Wayland yet.\nWindows are all over the place.\nMenu mouse releasing doesn't work properly.")
+
+    sys.exit(app.exec())

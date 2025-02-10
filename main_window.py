@@ -9,6 +9,8 @@ including file navigation, status bar updates, etc.
 
 import sys
 import os
+
+# FIXME: Import Qt like this: from PyQt6 import QtWidgets, QtGui, QtCore, QtWebEngineWidgets
 from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QVBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu, QStyle
 from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl, QMimeData, QSize
 from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QDrag, QCursor
@@ -319,6 +321,45 @@ class MillerColumns(QMainWindow):
 
             # Update the preview panel with the selected file's content
             self.update_preview_panel(current)
+
+    def open_folder(self, folder_path):
+        """
+        Open the specified folder in the column view.
+        """
+        if not self.is_valid_path(folder_path):
+            QMessageBox.critical(self, "Error", f"The path '{folder_path}' does not exist or is not a directory.")
+            return
+
+        parent_index = self.file_model.index(folder_path)
+        self._update_view(parent_index)
+
+    def new_folder(self):
+        """
+        Create a new folder in the current directory.
+        """
+        current_index = self.columns[-1].rootIndex()
+        if current_index.isValid():
+            new_folder_name, ok = QInputDialog.getText(self, "New Folder", "Enter the name of the new folder:")
+            if ok and new_folder_name:
+                new_folder_path = os.path.join(self.file_model.filePath(current_index), new_folder_name)
+                try:
+                    os.mkdir(new_folder_path)
+                    self.columns[-1].setRootIndex(current_index)  # Refresh the view
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"{e}")
+
+    def get_info(self):
+        import getinfo
+        print("get_info")  
+        selected_indexes = self.columns[-1].selectedIndexes()
+        if not selected_indexes:
+            # A folder is selected but no files or folders inside it are selected yet, so we need to select the folder itself
+            selected_indexes = self.columns[-2].selectedIndexes()
+        if not selected_indexes:
+            QMessageBox.warning(self, "No Selection", "No files or folders selected.")
+            return
+        paths = [self.file_model.filePath(index) for index in selected_indexes]
+        getinfo.FileInfoDialog(paths, self).exec()
 
     def on_double_clicked(self, index: QModelIndex):
         """
