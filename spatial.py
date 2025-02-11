@@ -22,6 +22,11 @@ if sys.platform == "win32":
 
 import appdir
 
+"""
+FIXME/TODO:
+* Move the start QDrag() code to mouseMoveEvent() and include a threshold to avoid starting a drag when the mouse is clicked and moved just a little bit (like we do in siracusa.py)
+"""
+
 class SpatialFiler(QMainWindow):
 
     def __init__(self, path=None, is_desktop_window=False):
@@ -546,6 +551,7 @@ class SpatialFiler(QMainWindow):
                                 f.unhighlight()
                         clicked_item.highlight()
                     
+                    # FIXME: Move the start QDrag() code to mouseMoveEvent() and include a threshold to avoid starting a drag when the mouse is clicked and moved just a little bit
                     self.dragging = True
                     self.last_pos = adjusted_pos
                     self.update_menu_state()
@@ -1317,6 +1323,13 @@ if __name__ == "__main__":
         app.log_console = log_console.ConsoleOutputStream()
         sys.stdout = log_console.Tee(sys.stdout, app.log_console)
         sys.stderr = log_console.Tee(sys.stderr, app.log_console)
+
+    try:
+        import styling
+    except ImportError:
+        pass
+    if "styling" in sys.modules:
+        styling.apply_styling(app)
 
     for screen in QApplication.screens():
         # TODO: Possibly only create the desktop window on the primary screen and just show a background image on the other screens

@@ -162,3 +162,7 @@ cython_debug/
 #.idea/
 
 .DS_*
+fonts/*
+icons/*
+settings.json
+._*

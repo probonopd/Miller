@@ -11,17 +11,16 @@ import sys
 import os
 
 # FIXME: Import Qt like this: from PyQt6 import QtWidgets, QtGui, QtCore, QtWebEngineWidgets
-from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QVBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu, QStyle
-from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl, QMimeData, QSize
+from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu, QStyle
+from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl, QMimeData
 from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QDrag, QCursor
 from PyQt6.QtWebEngineWidgets import QWebEngineView # pip install PyQt6-WebEngine
 import mimetypes
 if sys.platform == 'win32':
-    from windows_integration import show_context_menu, show_properties
+    from windows_integration import show_context_menu
     import windows_file_operations
-import menus
-import toolbar
-import status_bar
+
+import menus, toolbar, status_bar, getinfo
 
 class CustomFileSystemModel(QFileSystemModel):
     """
@@ -349,8 +348,6 @@ class MillerColumns(QMainWindow):
                     QMessageBox.critical(self, "Error", f"{e}")
 
     def get_info(self):
-        import getinfo
-        print("get_info")  
         selected_indexes = self.columns[-1].selectedIndexes()
         if not selected_indexes:
             # A folder is selected but no files or folders inside it are selected yet, so we need to select the folder itself
@@ -486,6 +483,24 @@ class MillerColumns(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    # Output not only to the console but also to the GUI
+    try:
+        import log_console
+    except ImportError:
+        pass
+    if "log_console" in sys.modules:
+        app.log_console = log_console.ConsoleOutputStream()
+        sys.stdout = log_console.Tee(sys.stdout, app.log_console)
+        sys.stderr = log_console.Tee(sys.stderr, app.log_console)
+
+    try:
+        import styling
+    except ImportError:
+        pass
+    if "styling" in sys.modules:
+        styling.apply_styling(app)
+
     app.setWindowIcon(app.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
     window = MillerColumns()
     window.show()

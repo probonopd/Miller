@@ -27,29 +27,29 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
-* Spring-loaded folders are broken! dragMoveEvent never gets called?
-* When multiple items are dragged outside of the window, the items are not positioned at the correct coordinates (relative to each other like in the original window) in the new window.
-* Do not store the full path in the layout file, only the file name. This way, the layout can be restored even if the folder is moved.
+* When multiple items are dragged, the items are not positioned at the correct coordinates in the pixmap (especially the one clicked on vs. the others; positions should stay relative to each other like in the original window). Could using a QGraphicsItemGroup help?
 * Why is no filename shown underneath the icon for disks? Maybe first create all FileItems and then set their positions in a second loop? This way we could set a nice display title for disks.
 
 FOR TESTING:
 * WIndows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
 """
 
-import os, sys, signal, json, shutil, time
+import os, sys, signal, json, shutil
 
 from PyQt6 import QtWidgets, QtGui, QtCore
 
 if sys.platform == "win32":
-    import ctypes
     from win32com.client import Dispatch
 
-import getinfo, menus, log_console
-
+import getinfo, menus
 LAYOUT_FILENAME = "._layout.json"
 
 item_width = grid_width = 100
 item_height = grid_height = 60
+
+from styling import setup_icon_theme
+setup_icon_theme()
+icon_provider = QtWidgets.QFileIconProvider()
 
 # ---------------- File Operation Thread (for copy/cut/paste and drag–drop operations) ----------------
 class FileOperationThread(QtCore.QThread):
@@ -111,6 +111,8 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
         self.spring_close_timer.setSingleShot(True)
         self.spring_close_timer.setInterval(1000)
         self.spring_close_timer.timeout.connect(self.handleSpringClose)
+        # 0px border is crucial for scroll bars to be visible when needed and invisible when not needed.
+        self.setStyleSheet("QGraphicsView { border: 0px solid red; }")
 
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent):
         if (event.mimeData().hasFormat("application/x-fileitem") or
@@ -141,13 +143,13 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
 
     def mouseMoveEvent(self, event):
         item = self.itemAt(event.pos())
-        print("Hovering over item in mouseMoveEvent:", item)
         if item is not None and item.isSelected():
             # If the item is selected, we should not trigger spring-loaded folder opening to prevent spring-opening the folder we are dragging.
             self.spring_item = None
             self.spring_timer.stop()
             self.spring_close_timer.stop()
         elif isinstance(item, FileItem) and item.is_folder:
+            print("Hovering over folder in mouseMoveEvent:", item)
             if self.spring_item != item:
                 self.spring_item = item
                 self.spring_timer.start()
@@ -155,6 +157,8 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
         else:
             self.spring_timer.stop()
             self.spring_close_timer.start()
+
+        # FIXME: Start a drag operation if the mouse leaves the window while dragging an item? Or do we have to start the drag even earlier?
 
         return super().mouseMoveEvent(event)
 
@@ -165,31 +169,40 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
         super().dragLeaveEvent(event)
 
     def dropEvent(self, event: QtGui.QDropEvent):
-        if (event.mimeData().hasFormat("application/x-fileitems") or
-            event.mimeData().hasFormat("application/x-fileitem")):
+        if (event.mimeData().hasFormat("application/x-fileitem") or
+            event.mimeData().hasFormat("application/x-fileitems")):
             event.acceptProposedAction()
-            # Determine drop position in scene coordinates.
             drop_scene_pos = self.mapToScene(event.position().toPoint())
-            # Check for multiple items drag first.
+            
             if event.mimeData().hasFormat("application/x-fileitems"):
                 data = event.mimeData().data("application/x-fileitems")
                 try:
-                    file_paths = json.loads(bytes(data).decode("utf-8"))
+                    drag_data = json.loads(bytes(data).decode("utf-8"))
+                    file_paths = drag_data.get("files", [])
+                    offsets = drag_data.get("offsets", {})
+                    hotspot = drag_data.get("hotspot", {"x": 0, "y": 0})
                 except Exception:
                     file_paths = []
-            else:
-                data = event.mimeData().data("application/x-fileitem")
-                file_paths = [bytes(data).decode("utf-8")]
-            # Cancel the operation if the source and destination folders are the same.
+                    offsets = {}
+                    hotspot = {"x": 0, "y": 0}
+            
+            # If the source and destination folders are the same, reposition items.
             if os.path.dirname(file_paths[0]) == self.parent().folder_path:
-                # Free movement: Move the items to the drop position
-                for file_path in file_paths:
-                    item = next((item for item in self.scene().items() if isinstance(item, FileItem) and item.file_path == file_path), None)
-                    if item:
-                        item.setPos(drop_scene_pos - QtCore.QPointF(item.hotspot))
+                # Compute what the union rectangle’s top left should be in the destination:
+                # We want the hotspot (from the union pixmap) to align with the drop position.
+                new_union_top_left = drop_scene_pos - QtCore.QPointF(hotspot["x"], hotspot["y"])
+                for f in file_paths:
+                    item = next((item for item in self.scene().items() 
+                                if isinstance(item, FileItem) and item.file_path == f), None)
+                    if item and f in offsets:
+                        off = offsets[f]  # This is a tuple (dx, dy)
+                        new_pos = new_union_top_left + QtCore.QPointF(off[0], off[1])
+                        item.setPos(new_pos)
                 event.ignore()
                 return
-            # Popup a menu to choose the action.
+            
+            # Otherwise, for cross-window drag, you can store the drop positions for later processing.
+            # For example:
             menu = QtWidgets.QMenu(self)
             copy_action = menu.addAction("Copy")
             move_action = menu.addAction("Move")
@@ -206,10 +219,22 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
                 chosen = "symlink"
             else:
                 chosen = None
-
+            
             if chosen:
                 main_window = self.window()
                 if isinstance(main_window, SpatialFilerWindow):
+                    # Compute new drop positions based on the union offsets.
+                    new_drop_positions = {}
+                    new_union_top_left = drop_scene_pos - QtCore.QPointF(hotspot["x"], hotspot["y"])
+                    for f in file_paths:
+                        off = offsets.get(f, [0, 0])
+                        new_drop_positions[f] = new_union_top_left + QtCore.QPointF(off[0], off[1])
+                    # Update the drop target positions so that when the new window loads the files,
+                    # they are placed at the correct positions.
+                    main_window.drop_target_positions.update({
+                        os.path.join(main_window.folder_path, os.path.basename(f)): new_drop_positions[f]
+                        for f in file_paths
+                    })
                     main_window.process_drop_operation(file_paths, chosen, drop_scene_pos)
         else:
             super().dropEvent(event)
@@ -245,7 +270,6 @@ class FileItem(QtWidgets.QGraphicsObject):
 
     def __init__(self, file_path: str, pos: QtCore.QPointF, width = item_width, height = item_height):
         super().__init__()
-        self.hotspot = None
         self.file_path = file_path
         self.width = width
         self.height = height
@@ -256,7 +280,6 @@ class FileItem(QtWidgets.QGraphicsObject):
         self.setPos(pos)
         self.is_folder = os.path.isdir(file_path)
 
-        icon_provider = QtWidgets.QFileIconProvider()
         file_info = QtCore.QFileInfo(file_path)
         self.icon = icon_provider.icon(file_info)
         icon_size = QtCore.QSize(32, 32)
@@ -271,7 +294,7 @@ class FileItem(QtWidgets.QGraphicsObject):
 
     def boundingRect(self) -> QtCore.QRectF:
         # Accommodate the icon and file name.
-        return QtCore.QRectF(0, 0, self.width, self.height + 20)
+        return QtCore.QRectF(0, 0, self.width, self.height)
 
     def paint(self, painter: QtGui.QPainter, option: QtWidgets.QStyleOptionGraphicsItem, widget=None):
         # Ensure offsets are always defined
@@ -283,10 +306,11 @@ class FileItem(QtWidgets.QGraphicsObject):
         # Ensure text position calculations are always performed
         metrics = QtGui.QFontMetrics(self.font)
         base_name = os.path.basename(self.file_path)
-        elided_text = metrics.elidedText(base_name, QtCore.Qt.TextElideMode.ElideMiddle, self.width)
+        space_before_and_after = 6
+        elided_text = metrics.elidedText(base_name, QtCore.Qt.TextElideMode.ElideMiddle, self.width - space_before_and_after)
         text_width = metrics.horizontalAdvance(elided_text)
         text_height = metrics.height()
-        text_x = (self.width - text_width) / 2
+        text_x = (self.width - text_width) / 2 + 3 - space_before_and_after/2
         text_y = self.height - int(text_height / 2)
 
         # Draw selection highlight only around the icon and text
@@ -311,10 +335,15 @@ class FileItem(QtWidgets.QGraphicsObject):
         # Draw the icon
         painter.drawPixmap(QtCore.QPointF(offset_x, offset_y), self.pixmap)
 
+        # Draw translucent white box under the text
+        painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 128)))
+        painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0, 0)))
+        painter.drawRect(QtCore.QRectF(text_x - space_before_and_after/2, text_y - text_height, text_width + space_before_and_after, text_height))
+        
         # Draw the file/folder name
         painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0)))
         painter.setFont(self.font)
-        painter.drawText(int(text_x), int(text_y), elided_text)
+        painter.drawText(int(text_x), int(text_y-3), elided_text)
 
     def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         # Record the screen position where the press occurred.
@@ -348,93 +377,91 @@ class FileItem(QtWidgets.QGraphicsObject):
             event.ignore()
 
     def mouseMoveEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
-        # If the mouse is inside the main window, allow normal repositioning.
-        if self.scene() and self.scene().views():
-            main_window = self.scene().views()[0].window()
-            if main_window.frameGeometry().contains(event.screenPos()):
-                super().mouseMoveEvent(event)
-                return
-
-        # Start the drag once the mouse has moved a threshold distance.
-        if self.drag_start_position is None:
-            self.drag_start_position = event.screenPos()
-        if (event.screenPos() - self.drag_start_position).manhattanLength() < 10:
-            # Not moved enough; let the default behavior run.
+        # Only process drag if items are selected (and we're in a drag situation)
+        selected_items = self.scene().selectedItems()
+        # Check whether the mouse is over one of the selected items
+        if not selected_items or not any(item == self for item in selected_items):
+            super().mouseMoveEvent(event)
+            return
+        if not selected_items:
             super().mouseMoveEvent(event)
             return
 
-        # Cancel free repositioning.
+        # Set a movement threshold to initiate a drag (10 pixels, for example)
+        if self.drag_start_position is None:
+            self.drag_start_position = event.screenPos()
+        if (event.screenPos() - self.drag_start_position).manhattanLength() < 10:
+            super().mouseMoveEvent(event)
+            return
+
+        # Cancel free repositioning (restore the original position)
         self.setPos(self._original_pos)
 
         # Prepare the drag operation.
         drag = QtGui.QDrag(event.widget())
         mime_data = QtCore.QMimeData()
-        selected_items = self.scene().selectedItems()
 
-        # Hide all items during drag.
-        for item in selected_items:
-            item.setOpacity(0.0)
+        # Hide all selected items during the drag
+        for itm in selected_items:
+            itm.setOpacity(0.0)
 
-        # --- Single-Item Case ---
-        if len(selected_items) == 1:
-            mime_data.setData("application/x-fileitem", self.file_path.encode("utf-8"))
-            rect = self.boundingRect()
-            pixmap = QtGui.QPixmap(int(rect.width()), int(rect.height()))
-            pixmap.fill(QtCore.Qt.GlobalColor.transparent)
-            painter = QtGui.QPainter(pixmap)
+
+        # Compute the union rectangle of all selected items (in scene coordinates).
+        union_rect = None
+        for itm in selected_items:
+            item_scene_rect = itm.mapToScene(itm.boundingRect()).boundingRect()
+            union_rect = item_scene_rect if union_rect is None else union_rect.united(item_scene_rect)
+
+        # If for some reason no union rectangle could be computed, abort the custom drag.
+        if union_rect is None:
+            super().mouseMoveEvent(event)
+            return
+
+        # Create a pixmap covering the union rectangle.
+        pixmap = QtGui.QPixmap(int(union_rect.width()), int(union_rect.height()))
+        pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+        painter = QtGui.QPainter(pixmap)
+        # We'll store each item's offset relative to the union rectangle
+        relative_offsets = {}
+        for itm in selected_items:
+            item_scene_top_left = itm.mapToScene(itm.boundingRect().topLeft())
+            offset = item_scene_top_left - union_rect.topLeft()
+            relative_offsets[itm.file_path] = (offset.x(), offset.y())
+            painter.save()
+            painter.translate(offset)
             option = QtWidgets.QStyleOptionGraphicsItem()
             if self.scene().views():
                 option.widget = self.scene().views()[0]
-            self.paint(painter, option)
-            painter.end()
-            # The hotspot is the mouse position in local coordinates.
-            item.hotspot = QtCore.QPoint(int(event.pos().x()), int(event.pos().y()))
-        # --- Multiple-Item Case ---
-        else:
-            # Save the file paths.
-            file_paths = [item.file_path for item in selected_items if isinstance(item, FileItem)]
-            mime_data.setData("application/x-fileitems", json.dumps(file_paths).encode("utf-8"))
-            # Compute the union rectangle of all items in scene coordinates.
-            union_rect = None
-            for item in selected_items:
-                # Map the item’s boundingRect() into scene coordinates.
-                item_scene_rect = item.mapToScene(item.boundingRect()).boundingRect()
-                union_rect = item_scene_rect if union_rect is None else union_rect.united(item_scene_rect)
-            # Create a pixmap the size of the union rectangle.
-            pixmap = QtGui.QPixmap(int(union_rect.width()), int(union_rect.height()))
-            pixmap.fill(QtCore.Qt.GlobalColor.transparent)
-            painter = QtGui.QPainter(pixmap)
-            # Paint each selected item at the proper offset.
-            for item in selected_items:
-                # Compute the top-left in scene coordinates.
-                item_scene_top_left = item.mapToScene(item.boundingRect().topLeft())
-                offset = item_scene_top_left - union_rect.topLeft()
-                painter.save()
-                painter.translate(offset)
-                option = QtWidgets.QStyleOptionGraphicsItem()
-                if self.scene().views():
-                    option.widget = self.scene().views()[0]
-                item.paint(painter, option)
-                painter.restore()
-            painter.end()
-            # Compute the hotspot for the clicked item:
-            # Convert its local event position to scene coordinates, then subtract union_rect.topLeft().
-            hotspot_scene = self.mapToScene(event.pos())
-            hotspot_point = hotspot_scene - union_rect.topLeft()
-            item.hotspot = QtCore.QPoint(int(hotspot_point.x()), int(hotspot_point.y()))
+            itm.paint(painter, option)
+            painter.restore()
+        painter.end()
 
+        # Compute the drag hotspot using the initiating item (self)
+        # Convert the event position (local to self) to scene coordinates, then compute its offset from union_rect.topLeft().
+        hotspot_scene = self.mapToScene(event.pos())
+        hotspot_point = hotspot_scene - union_rect.topLeft()
+        hotspot = QtCore.QPoint(int(hotspot_point.x()), int(hotspot_point.y()))
+
+        # Package the necessary data (file paths, offsets, and hotspot) into the MIME data.
+        drag_data = {
+            "files": [itm.file_path for itm in selected_items if isinstance(itm, FileItem)],
+            "offsets": relative_offsets,
+            "hotspot": {"x": hotspot.x(), "y": hotspot.y()}
+        }
+        mime_data.setData("application/x-fileitems", json.dumps(drag_data).encode("utf-8"))
+
+        # Finalize the drag setup.
         drag.setPixmap(pixmap)
-        drag.setHotSpot(item.hotspot)
+        drag.setHotSpot(hotspot)
         drag.setMimeData(mime_data)
         drag.exec(QtCore.Qt.DropAction.MoveAction | QtCore.Qt.DropAction.CopyAction)
 
-        # Restore opacities.
-        for item in selected_items:
-            item.setOpacity(1.0)
+        # Restore the opacities after the drag operation.
+        for itm in selected_items:
+            itm.setOpacity(1.0)
 
         self.drag_start_position = None
         event.accept()
-
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         self.setOpacity(1.0)
 
@@ -442,8 +469,7 @@ class FileItem(QtWidgets.QGraphicsObject):
             distance = (event.screenPos() - self.drag_start_position).manhattanLength()
             if self.scene() and self.scene().views() and distance > 2:
                 main_window = self.scene().views()[0].window()
-                if isinstance(main_window, SpatialFilerWindow):
-                    main_window.save_layout()
+                main_window.save_layout()
 
         self.drag_start_position = None  # Reset the variable
         super().mouseReleaseEvent(event)
@@ -539,6 +565,10 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         self.view = SpatialFilerView(self)
         self.view.setScene(self.scene)
         self.setCentralWidget(self.view)
+
+        # Set scroll policies on the QGraphicsView (SpatialFilerView)
+        self.view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         self.file_items = []
         self.clipboard = []          # For Copy/Cut/Paste: list of file paths.
@@ -703,22 +733,22 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             return QtCore.QPointF(x * grid_width, y * grid_height)
 
         for name in sorted(folder_files):
-            full_path = os.path.join(self.folder_path, name)
 
             # Skip items already in the scene
-            if any(item.file_path == full_path for item in self.file_items):
+            if any(item.file_path == name for item in self.file_items):
                 continue
 
             # Restore position if stored, otherwise find a free one
-            if full_path in stored_positions:
-                pos_x, pos_y = stored_positions[full_path]
+            if name in stored_positions:
+                pos_x, pos_y = stored_positions[name]
                 pos = QtCore.QPointF(pos_x, pos_y)
-            elif full_path in self.drop_target_positions:
-                pos = self.drop_target_positions.pop(full_path)
+            elif name in self.drop_target_positions:
+                pos = self.drop_target_positions.pop(name)
             else:
                 pos = find_next_available_position()
 
             # Create and add the new item
+            full_path = os.path.join(self.folder_path, name)
             item = FileItem(full_path, pos)
             item.openFolderRequested.connect(self.open_folder_from_item)
             self.scene.addItem(item)
@@ -729,8 +759,9 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def get_layout(self) -> dict:
         layout = {"items": {}}
         for item in self.file_items:
-            layout["items"][item.file_path] = (item.x(), item.y())
-        # Save window geometry as a base64-encoded string.
+            relative_path = os.path.basename(item.file_path)
+            layout["items"][relative_path] = (item.x(), item.y())
+        
         geom = self.saveGeometry().toBase64().data().decode("utf-8")
         layout["window_geometry"] = geom
         return layout
@@ -789,11 +820,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         if self.file_items:
             bounding_rect = self.scene.itemsBoundingRect()
             visible_rect = self.view.mapToScene(self.view.rect()).boundingRect()
-            # The same as above but without window borders, decorations, scrollbars, etc.
-            # visible_rect = self.view.mapToScene(self.view.viewport().rect()).boundingRect()
-            # Get the width of a vertical scrollbar
-            scrollbar_width = self.view.verticalScrollBar().width()
-            # Set the scene rect to the maximum of the two
             self.scene.setSceneRect(0, 0, max(visible_rect.width(), bounding_rect.width()), max(visible_rect.height(), bounding_rect.height()))
         else:
             self.scene.setSceneRect(0, 0, self.width(), self.height())
@@ -873,6 +899,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                 occupied_positions.add((x, y))
         
         self.update_scene_rect()
+        self.save_layout()
 
     def update_status_bar(self):
         self.statusBar().showMessage(f"Folder: {self.folder_path} | Items: {len(self.file_items)}")
@@ -1079,14 +1106,27 @@ class MainObject:
 if __name__ == "__main__":
     # Ctrl-C quits
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    
-    app = QtWidgets.QApplication(sys.argv)
-    app.setStyle("Fusion")
 
+    app = QtWidgets.QApplication(sys.argv)
+
+    app.setWindowIcon(app.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DirIcon))
+
+    # Output not only to the console but also to the GUI
+    try:
+        import log_console
+    except ImportError:
+        pass
     if "log_console" in sys.modules:
         app.log_console = log_console.ConsoleOutputStream()
         sys.stdout = log_console.Tee(sys.stdout, app.log_console)
         sys.stderr = log_console.Tee(sys.stderr, app.log_console)
+
+    try:
+        import styling
+    except ImportError:
+        pass
+    if "styling" in sys.modules:
+        styling.apply_styling(app)
 
     m = MainObject()
 

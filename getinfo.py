@@ -136,9 +136,8 @@ class FileInfoDialog(QtWidgets.QDialog):
             try:
                 st = os.stat(path)
                 total_size += st.st_size
-                info[os.path.basename(path) or path] = self._format_size(st.st_size)
             except Exception:
-                info[os.path.basename(path) or path] = "error"
+                pass
         info["Total Size"] = self._format_size(total_size)
         return info, {}
 
