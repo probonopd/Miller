@@ -34,12 +34,13 @@ FOR TESTING:
 * WIndows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
 """
 
-import os, sys, signal, json, shutil, subprocess
+import os, sys, signal, json, shutil, subprocess, time
 
 from PyQt6 import QtWidgets, QtGui, QtCore
 
 if sys.platform == "win32":
     from win32com.client import Dispatch
+    import win32gui, win32con # For managing windows
 
 import getinfo, menus, fileops
 
@@ -594,7 +595,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def update_edit_menu(self):
         """Enable/disable the Paste action based on the clipboard contents."""
-        print("Window:", self, "was told to update its Edit menu.")
         clipboard = QtWidgets.QApplication.clipboard()
         mime_data = clipboard.mimeData()
         if mime_data.hasFormat("application/x-fileitems"):
@@ -1093,6 +1093,9 @@ class MainObject:
                                                                                                                  desktop_window.height(),
                                                                                                                  QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                                                                                                                  QtCore.Qt.TransformationMode.SmoothTransformation)))
+            
+        # TODO: Find a way to watch for newly inserted drives and add them to the desktop window; QStorageInfo does not seem to have this capability?
+
         # Remove the last item in the first menu and replace it with a Quit action (Ctrl+Q)
         file_menu = desktop_window.menuBar().findChildren(QtWidgets.QMenu)[0]
         quit_action = QtGui.QAction("Quit", desktop_window)
@@ -1101,13 +1104,75 @@ class MainObject:
         file_menu.removeAction(file_menu.actions()[-1])
         file_menu.addAction(quit_action)
 
-        # Add shutdown action to the file menu
+        # Shutdown action
         shutdown_action = QtGui.QAction("Shut Down", desktop_window)
         shutdown_action.triggered.connect(self.shutdown)
         file_menu.addAction(shutdown_action)
-        
+
+        # Clock
+        # TODO: Move to the right-hand side of the menu bar
+        clock_menu = QtWidgets.QMenu(desktop_window)
+        clock_menu.setTitle(time.strftime("%H:%M"))
+        desktop_window.menuBar().addMenu(clock_menu)
+        self.clock_timer = QtCore.QTimer(desktop_window)
+        self.clock_timer.timeout.connect(lambda: clock_menu.setTitle(time.strftime("%H:%M")))
+        self.clock_timer.start(1000)
+        date_action = QtGui.QAction(time.strftime("%A, %B %d, %Y"), desktop_window)
+        date_action.setEnabled(False)
+        clock_menu.addAction(date_action)
+        clock_menu.aboutToShow.connect(lambda: date_action.setText(time.strftime("%A, %B %d, %Y")))
+
+        # "Windows" menu for Windows users showing all windows
+        if sys.platform == "win32":
+            self.windows_menu = QtWidgets.QMenu(desktop_window)
+            self.windows_menu.setTitle("Windows")
+            desktop_window.menuBar().addMenu(self.windows_menu)
+            # When opening the Windows menu, populate it with all open windows
+            self.windows_menu.aboutToShow.connect(self.win32_populate_windows_menu)
+
         desktop_window.show()
         self.desktop_window = desktop_window
+
+    def win32_populate_windows_menu(self):
+        # Clear the menu
+        self.windows_menu.clear()
+        # Use the Windows API to get a list of all open windows
+        def window_enum_handler(hwnd, windows):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
+                windows.append((hwnd, win32gui.GetWindowText(hwnd)))
+            return True
+        windows = []
+        win32gui.EnumWindows(window_enum_handler, windows)
+        windows_menu = QtWidgets.QMenu(self.desktop_window)
+        windows_menu.setTitle("Windows")
+        for hwnd, title in windows:
+            if title != "Desktop":
+                action = windows_menu.addAction(title)
+                action.triggered.connect(lambda checked, hwnd=hwnd: self.win32_restore_window(hwnd))
+                self.windows_menu.addAction(action)
+        self.windows_menu.addSeparator()
+        # "Show Desktop" action
+        show_desktop_action = self.windows_menu.addAction("Show Desktop")
+        show_desktop_action.triggered.connect(self.win32_minimize_all_windows)
+
+    def win32_minimize_all_windows(self):
+        def window_enum_handler(hwnd, windows):
+            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
+                windows.append((hwnd, win32gui.GetWindowText(hwnd)))
+            return True
+        windows = []
+        win32gui.EnumWindows(window_enum_handler, windows)
+        for hwnd, title in windows:
+            # Minimize all windows except the desktop window (called "Desktop")
+            if title != "Desktop":
+                win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+
+    def win32_restore_window(self, hwnd):
+        # If minimized, restore the window
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+        win32gui.SetForegroundWindow(hwnd)
 
     def shutdown(self):
         message_box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Icon.Question, "Shut Down", "Are you sure you want to shut down the computer?\nUnsaved work will be lost.", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
