@@ -341,9 +341,12 @@ class FileItem(QtWidgets.QGraphicsObject):
         painter.drawRect(QtCore.QRectF(text_x - space_before_and_after/2, text_y - text_height, text_width + space_before_and_after, text_height))
         
         # Draw the file/folder name
+        if os.path.islink(self.file_path) or (sys.platform == "win32" and os.path.splitext(self.file_path)[1].lower() == ".lnk"):
+            self.font.setItalic(True)
         painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0)))
         painter.setFont(self.font)
         painter.drawText(int(text_x), int(text_y-3), elided_text)
+        self.font.setItalic(False)
 
     def mousePressEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         # Record the screen position where the press occurred.
@@ -404,7 +407,6 @@ class FileItem(QtWidgets.QGraphicsObject):
         # Hide all selected items during the drag
         for itm in selected_items:
             itm.setOpacity(0.0)
-
 
         # Compute the union rectangle of all selected items (in scene coordinates).
         union_rect = None
@@ -598,9 +600,12 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         self.watcher.addPath(self.folder_path)
         self.watcher.directoryChanged.connect(self.refresh_view)
 
-        if self.isVisible():
-            # Do not try this when the window is already closed, for example when quitting the application.
-            self.scene.selectionChanged.connect(self.selectionChanged.emit)
+        self.scene.selectionChanged.connect(self.emit_selection_changed)
+
+    def emit_selection_changed(self):
+        # Do not try this when the window is already closed, for example when quitting the application.
+        if self.scene:
+            self.selectionChanged.emit()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1118,12 +1123,16 @@ class MainObject:
         if message_box.exec() == QtWidgets.QMessageBox.StandardButton.Yes:
             if sys.platform == "win32":
                 try:
-                    subprocess.run(["shutdown", "/s", "/t", "0"])
+                    result = subprocess.run(["shutdown", "/s", "/t", "0"], capture_output=True)
+                    if stderr := result.stderr.decode("utf-8"):
+                        QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {stderr}")
                 except Exception as e:
                     QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {e}")
             else:
                 try:
-                    subprocess.run(["shutdown", "-h", "now"])
+                    result = subprocess.run(["shutdown", "-h", "now"], capture_output=True)
+                    if stderr := result.stderr.decode("utf-8"):
+                        QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {stderr}")
                 except Exception as e:
                     QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {e}")
 
