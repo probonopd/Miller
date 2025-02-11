@@ -1,32 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-r"""
-This module provides functions to perform file operations such as copy, move, delete, and rename using Windows Shell API.
-It is intended for use in file manager applications, supporting operations like drag and drop.
-
-Functions:
-    copy_files_with_dialog(src_list, dst): Copies files or directories to a destination with a progress dialog.
-    move_files_with_dialog(src_list, dst): Moves files or directories to a destination with a progress dialog.
-    rename_file_with_dialog(src, dst): Renames a file or directory with a progress dialog.
-    delete_files_with_dialog(src_list): Deletes files or directories with a progress dialog.
-    move_to_recycle_bin(src_list): Moves files or directories to the recycle bin with a confirmation dialog.
-
-Usage:
-    Import the module and call the functions with appropriate parameters.
-
-Example:
-    import windows_file_operations
-
-    src_paths = [r"C:\path\to\source1", r"C:\path\to\source2"]
-    dst_path = r"C:\path\to\destination"
-    new_name = r"C:\path\to\new_name"
-
-    windows_file_operations.copy_files_with_dialog(src_paths, dst_path)
-    windows_file_operations.move_files_with_dialog(src_paths, dst_path)
-    windows_file_operations.rename_file_with_dialog(src_paths[0], new_name)
-    windows_file_operations.delete_files_with_dialog(src_paths)
-    windows_file_operations.move_to_recycle_bin(src_paths)
+"""
+NOTE: This file is deprecated and will be removed in a future release.
+Instead, use fileops.py which is platform-independent and provides similar functionality.
 """
 
 import os
