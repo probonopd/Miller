@@ -598,8 +598,9 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         self.watcher.addPath(self.folder_path)
         self.watcher.directoryChanged.connect(self.refresh_view)
 
-        # Emit "selectionChanged" signal when self.scene.selectionChanged
-        self.scene.selectionChanged.connect(self.selectionChanged.emit)
+        if self.isVisible():
+            # Do not try this when the window is already closed, for example when quitting the application.
+            self.scene.selectionChanged.connect(self.selectionChanged.emit)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -634,10 +635,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def move_to_trash(self):
         # Use file operation thread to move selected items to Trash.
         QtWidgets.QMessageBox.information(self, "Move to Trash", "Not implemented yet.")
-
-    def quit_application(self):
-        """Exit the application."""
-        QtWidgets.QApplication.quit()
 
     def empty_trash(self):
         """Delete all files in the Trash folder."""
@@ -775,8 +772,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         except:
             pass    
         # Blink the window title to indicate a save
-        self.setWindowTitle(f"Saved: {self.windowTitle()}")
-        QtCore.QTimer.singleShot(1000, lambda: self.setWindowTitle(self.windowTitle().replace("Saved: ", "")))
+        # self.setWindowTitle(f"Saved: {self.windowTitle()}")
+        # QtCore.QTimer.singleShot(1000, lambda: self.setWindowTitle(self.windowTitle().replace("Saved: ", "")))
 
     def open_folder(self):
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Folder", self.folder_path)
@@ -1062,6 +1059,35 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def selectedItems(self):
         return self.scene.selectedItems()
 
+class ShutDownDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Shutdown")
+        self.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
+        self.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnTopHint)
+        self.setFixedSize(300, 150)
+
+        layout = QtWidgets.QVBoxLayout()
+
+        label = QtWidgets.QLabel("Are you sure you want to shut down the computer?\nAny unsaved work will be lost.")
+        layout.addWidget(label)
+
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.StandardButton.Yes | QtWidgets.QDialogButtonBox.StandardButton.No
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.setLayout(layout)
+
+    def accept(self):
+        # Shut down the computer
+        if sys.platform == "win32":
+            os.system("shutdown /s /t 1")
+        else:
+            os.system("shutdown -h now")
+
 # ---------------- Main Application Object ----------------
 class MainObject:
     def __init__(self):
@@ -1075,8 +1101,6 @@ class MainObject:
         desktop_window.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnBottomHint)
         desktop_window.move(screen.geometry().x(), screen.geometry().y())
         desktop_window.resize(screen.geometry().width(), screen.geometry().height())
-        desktop_window.view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        desktop_window.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         desktop_window.statusBar().hide()
         # Set the background color of the desktop window to gray
         desktop_window.view.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(128, 128, 128)))
@@ -1099,9 +1123,25 @@ class MainObject:
                                                                                                                  desktop_window.height(),
                                                                                                                  QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                                                                                                                  QtCore.Qt.TransformationMode.SmoothTransformation)))
-                 
+        # Remove the last item in the first menu and replace it with a Quit action (Ctrl+Q)
+        file_menu = desktop_window.menuBar().findChildren(QtWidgets.QMenu)[0]
+        quit_action = QtGui.QAction("Quit", desktop_window)
+        quit_action.setShortcut("Ctrl+Q")
+        quit_action.triggered.connect(QtWidgets.QApplication.quit)
+        file_menu.removeAction(file_menu.actions()[-1])
+        file_menu.addAction(quit_action)
+
+        # Add shutdown action to the file menu
+        shutdown_action = QtGui.QAction("Shutdown", desktop_window)
+        shutdown_action.triggered.connect(self.shutdown)
+        file_menu.addAction(shutdown_action)
+        
         desktop_window.show()
         self.desktop_window = desktop_window
+
+    def shutdown(self):
+        dialog = ShutDownDialog(self.desktop_window)
+        dialog.exec()
 
 if __name__ == "__main__":
     # Ctrl-C quits
