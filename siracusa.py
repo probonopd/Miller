@@ -1023,6 +1023,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def get_or_create_window(folder_path, spring_loaded: bool = False):
         if folder_path in SpatialFilerWindow.open_windows:
             window = SpatialFilerWindow.open_windows[folder_path]
+            if window.isMinimized():
+                window.showNormal()
             window.raise_()
             window.activateWindow()
             if spring_loaded:
