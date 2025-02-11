@@ -34,7 +34,7 @@ FOR TESTING:
 * WIndows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
 """
 
-import os, sys, signal, json, shutil
+import os, sys, signal, json, shutil, subprocess
 
 from PyQt6 import QtWidgets, QtGui, QtCore
 
@@ -1059,34 +1059,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def selectedItems(self):
         return self.scene.selectedItems()
 
-class ShutDownDialog(QtWidgets.QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Shutdown")
-        self.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
-        self.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnTopHint)
-        self.setFixedSize(300, 150)
-
-        layout = QtWidgets.QVBoxLayout()
-
-        label = QtWidgets.QLabel("Are you sure you want to shut down the computer?\nAny unsaved work will be lost.")
-        layout.addWidget(label)
-
-        buttons = QtWidgets.QDialogButtonBox(
-            QtWidgets.QDialogButtonBox.StandardButton.Yes | QtWidgets.QDialogButtonBox.StandardButton.No
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-        self.setLayout(layout)
-
-    def accept(self):
-        # Shut down the computer
-        if sys.platform == "win32":
-            os.system("shutdown /s /t 1")
-        else:
-            os.system("shutdown -h now")
 
 # ---------------- Main Application Object ----------------
 class MainObject:
@@ -1132,7 +1104,7 @@ class MainObject:
         file_menu.addAction(quit_action)
 
         # Add shutdown action to the file menu
-        shutdown_action = QtGui.QAction("Shutdown", desktop_window)
+        shutdown_action = QtGui.QAction("Shut Down", desktop_window)
         shutdown_action.triggered.connect(self.shutdown)
         file_menu.addAction(shutdown_action)
         
@@ -1140,8 +1112,21 @@ class MainObject:
         self.desktop_window = desktop_window
 
     def shutdown(self):
-        dialog = ShutDownDialog(self.desktop_window)
-        dialog.exec()
+        message_box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Icon.Question, "Shut Down", "Are you sure you want to shut down the computer?\nUnsaved work will be lost.", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+        message_box.setIcon(QtWidgets.QMessageBox.Icon.Question)
+        message_box.setDefaultButton(QtWidgets.QMessageBox.StandardButton.No)
+        if message_box.exec() == QtWidgets.QMessageBox.StandardButton.Yes:
+            if sys.platform == "win32":
+                try:
+                    subprocess.run(["shutdown", "/s", "/t", "0"])
+                except Exception as e:
+                    QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {e}")
+            else:
+                try:
+                    subprocess.run(["shutdown", "-h", "now"])
+                except Exception as e:
+                    QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {e}")
+
 
 if __name__ == "__main__":
     # Ctrl-C quits
