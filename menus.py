@@ -119,13 +119,19 @@ def create_menus(window):
     go_menu.addAction(trash_action)
     go_menu.addSeparator()
 
-    if os.name == 'nt':
+    if sys.platform == "win32":
         from windows_map_drives import get_drive_letters
         for drive in get_drive_letters():
             drive_action = QtGui.QAction(drive, window)
             drive_action.triggered.connect(lambda checked, d=drive: window.go_drive(d))
             go_menu.addAction(drive_action)
         go_menu.addSeparator()
+
+        # Windows-R run dialog
+        run_action = QtGui.QAction("Run...", window)
+        run_action.triggered.connect(run_dialog)
+        go_menu.addAction(run_action)
+        run_action.setShortcut("Meta+R")
 
     # View Menu
     view_menu = menubar.addMenu("View")
@@ -160,3 +166,23 @@ def create_menus(window):
     if "log_console" in sys.modules:
         app = QtWidgets.QApplication.instance()
         app.log_console.add_menu_items(help_menu, window)
+
+
+def run_dialog(self):
+    """
+    Open the Windows Run dialog.
+    """
+    if not sys.platform == "win32":
+        return
+    from win32com.client import Dispatch
+    shell = Dispatch("WScript.Shell")
+    shell.Run("rundll32.exe shell32.dll,#61")
+
+def show_windows_taskbar(self):
+    """
+    Show the Windows taskbar.
+    """
+    if not sys.platform == "win32":
+        return
+    import ctypes
+    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 1)

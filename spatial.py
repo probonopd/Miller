@@ -82,6 +82,7 @@ class SpatialFiler(QMainWindow):
         self.scroll_area.setWidget(self.container)
         self.layout.addWidget(self.scroll_area)
         self.layout.setContentsMargins(0, 0, 0, 0)
+        # self.central_widget.setStyleSheet("QWidget { border: 0px; }") # TODO: QWigdget is too general; we would need to subclass it so as to limit the border removal to self.central_widget
         self.central_widget.setLayout(self.layout)
 
         # Create the menu bar

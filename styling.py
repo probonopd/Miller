@@ -61,7 +61,7 @@ def apply_styling(app):
     app.setPalette(palette)
 
     # 0px window border in red
-    app.setStyleSheet("QMainWindow { border: 0px solid red; }")
+    app.setStyleSheet("QMainWindow { border: 0px; }")
 
 def setup_icon_theme():
     # Set icon theme

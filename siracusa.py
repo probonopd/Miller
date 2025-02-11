@@ -112,7 +112,7 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
         self.spring_close_timer.setInterval(1000)
         self.spring_close_timer.timeout.connect(self.handleSpringClose)
         # 0px border is crucial for scroll bars to be visible when needed and invisible when not needed.
-        self.setStyleSheet("QGraphicsView { border: 0px solid red; }")
+        self.setStyleSheet("QGraphicsView { border: 0px; }")
 
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent):
         if (event.mimeData().hasFormat("application/x-fileitem") or
@@ -491,7 +491,7 @@ class FileItem(QtWidgets.QGraphicsObject):
         """Opens a folder or launches a file."""
         # Special case: On Windows, .lnk files are shortcuts to files or folders.
         target_path = self.file_path
-        if os.name == "nt" and self.file_path.lower().endswith(".lnk"):
+        if sys.platform == "win32" and self.file_path.lower().endswith(".lnk"):
             target_path = self.resolve_lnk(self.file_path)
 
         if os.path.isdir(target_path):
@@ -557,7 +557,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         self.folder_path = folder_path
 
-        self.setWindowTitle(f"Spatial Filer - {os.path.basename(folder_path)}")
+        self.setWindowTitle(os.path.basename(folder_path))
         self.setGeometry(100, 100, 800, 600)
         self.spring_loaded = False  # will be set True if opened via spring–load
 
@@ -613,7 +613,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def go_trash(self):
         """Open the Trash directory."""
-        if os.name == "nt":
+        if sys.platform == "win32":
             trash_dir = os.path.join(os.getenv('USERPROFILE'), 'Recycle Bin')
         else:
             trash_dir = os.path.expanduser("~/.local/share/Trash/files")
@@ -638,7 +638,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def empty_trash(self):
         """Delete all files in the Trash folder."""
-        if os.name == "nt":
+        if sys.platform == "win32":
             trash_dir = os.path.join(os.getenv('USERPROFILE'), 'Recycle Bin')
         else:
             trash_dir = os.path.expanduser("~/.local/share/Trash/files")

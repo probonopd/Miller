@@ -14,6 +14,7 @@ from the application's menu bar.
 class ConsoleOutputStream(io.TextIOBase):
     def __init__(self):
         self.log_console = QPlainTextEdit()
+        self.log_console.setStyleSheet('border: 0px')
         self.log_console.setReadOnly(True)
         self.log_console_window = QMainWindow()
         self.log_console_window.setCentralWidget(self.log_console)
