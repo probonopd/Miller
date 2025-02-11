@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-import os
-import time
-import mimetypes
+
+import os, sys, time, mimetypes
+
 from PyQt6 import QtWidgets, QtCore
 
 
@@ -117,8 +117,19 @@ class FileInfoDialog(QtWidgets.QDialog):
         try:
             st = os.stat(file_path)
             item_type = "Folder" if os.path.isdir(file_path) else (mimetypes.guess_type(file_path)[0] or "File")
+
+            if os.path.ismount(file_path):
+                item_type = "Volume"
+                storage_info = QtCore.QStorageInfo(file_path)
+                self.setWindowTitle(storage_info.displayName())
+
+            file_path_nice = file_path
+            if sys.platform == "win32":
+                file_path_nice = file_path.replace("/", "\\")
+                file_path_nice = file_path_nice.replace("\\\\", "\\")
+
             info = {
-                "Path": file_path,
+                "Path": file_path_nice,
                 "Type": item_type,
                 "Size": self._format_size(st.st_size),
                 "Modified": time.ctime(st.st_mtime),

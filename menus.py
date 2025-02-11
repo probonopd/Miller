@@ -66,9 +66,9 @@ def create_menus(window):
     copy_action.setShortcut("Ctrl+C")
     edit_menu.addAction(copy_action)
 
-    paste_action = QtGui.QAction("Paste", window)
-    paste_action.setShortcut("Ctrl+V")
-    edit_menu.addAction(paste_action)
+    window.paste_action = QtGui.QAction("Paste", window)
+    window.paste_action.setShortcut("Ctrl+V")
+    edit_menu.addAction(window.paste_action)
     edit_menu.addSeparator()
 
     delete_action = QtGui.QAction("Delete", window)
@@ -90,7 +90,7 @@ def create_menus(window):
     if window.__class__.__name__ == "SpatialFilerWindow":
         copy_action.triggered.connect(window.copy_selected)
         cut_action.triggered.connect(window.cut_selected)
-        paste_action.triggered.connect(window.paste_items)
+        window.paste_action.triggered.connect(window.paste_items)
         delete_action.triggered.connect(window.delete_selected)
         select_all_action.triggered.connect(window.select_all)
         empty_trash_action.triggered.connect(window.empty_trash)
@@ -104,7 +104,7 @@ def create_menus(window):
         # Initially disable the actions, they will be enabled when the user selects items
         cut_action.setEnabled(False)
         copy_action.setEnabled(False)
-        paste_action.setEnabled(False)
+        window.paste_action.setEnabled(False)
         delete_action.setEnabled(False)
 
     # Go menu
@@ -177,12 +177,3 @@ def run_dialog(self):
     from win32com.client import Dispatch
     shell = Dispatch("WScript.Shell")
     shell.Run("rundll32.exe shell32.dll,#61")
-
-def show_windows_taskbar(self):
-    """
-    Show the Windows taskbar.
-    """
-    if not sys.platform == "win32":
-        return
-    import ctypes
-    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 1)

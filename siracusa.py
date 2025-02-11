@@ -27,8 +27,8 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
-* When multiple items are dragged, the items are not positioned at the correct coordinates in the pixmap (especially the one clicked on vs. the others; positions should stay relative to each other like in the original window). Could using a QGraphicsItemGroup help?
-* Why is no filename shown underneath the icon for disks? Maybe first create all FileItems and then set their positions in a second loop? This way we could set a nice display title for disks.
+* Did we destroy dragging items onto other applications (e.g., music player) when we added the hotspots for dragging to the drag data?
+* We need to set nice names for disks based on the disk label if there is one. The nice name does not always match the name in the file system.
 
 FOR TESTING:
 * WIndows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
@@ -41,7 +41,8 @@ from PyQt6 import QtWidgets, QtGui, QtCore
 if sys.platform == "win32":
     from win32com.client import Dispatch
 
-import getinfo, menus
+import getinfo, menus, fileops
+
 LAYOUT_FILENAME = "._layout.json"
 
 item_width = grid_width = 100
@@ -50,45 +51,6 @@ item_height = grid_height = 60
 from styling import setup_icon_theme
 setup_icon_theme()
 icon_provider = QtWidgets.QFileIconProvider()
-
-# ---------------- File Operation Thread (for copy/cut/paste and drag–drop operations) ----------------
-class FileOperationThread(QtCore.QThread):
-    progress = QtCore.pyqtSignal(int)
-    finished = QtCore.pyqtSignal()
-    error = QtCore.pyqtSignal(str)
-
-    def __init__(self, operations, op_type, total_size, parent=None):
-        super().__init__(parent)
-        self.operations = operations
-        self.op_type = op_type
-        self.total_size = total_size
-        self._isCanceled = False
-
-    def run(self):
-        try:
-            copied_size = 0
-            for index, (src, dest) in enumerate(self.operations):
-                if self._isCanceled:
-                    break
-                file_size = os.path.getsize(src) if os.path.exists(src) else 0
-                copied = 0
-                with open(src, "rb") as fsrc, open(dest, "wb") as fdest:
-                    while chunk := fsrc.read(65536):
-                        if self._isCanceled:
-                            return
-                        fdest.write(chunk)
-                        copied += len(chunk)
-                        copied_size += len(chunk)
-                        progress_percentage = int((copied_size / self.total_size) * 100)
-                        self.progress.emit(progress_percentage)
-                if self.op_type == "move":
-                    os.remove(src)
-            self.finished.emit()
-        except Exception as e:
-            self.error.emit(str(e))
-    
-    def cancel(self):
-        self._isCanceled = True
 
 
 # ---------------- Spatial Filer View (subclassed QGraphicsView for drag–drop, multiple selection, and spring–loaded folders) ----------------
@@ -305,7 +267,17 @@ class FileItem(QtWidgets.QGraphicsObject):
 
         # Ensure text position calculations are always performed
         metrics = QtGui.QFontMetrics(self.font)
-        base_name = os.path.basename(self.file_path)
+        
+        if os.path.ismount(self.file_path):
+             # FIXME: While this is one way to do it, it is not optimal for performance. Instead we should set the nice name at the time of item creation.
+            storage_info = QtCore.QStorageInfo(self.file_path)
+            if sys.platform == "win32":
+                base_name = storage_info.displayName().replace("/", "\\")
+            else:
+                base_name = storage_info.displayName()
+        else:
+            base_name = os.path.basename(self.file_path)
+           
         space_before_and_after = 6
         elided_text = metrics.elidedText(base_name, QtCore.Qt.TextElideMode.ElideMiddle, self.width - space_before_and_after)
         text_width = metrics.horizontalAdvance(elided_text)
@@ -464,6 +436,7 @@ class FileItem(QtWidgets.QGraphicsObject):
 
         self.drag_start_position = None
         event.accept()
+
     def mouseReleaseEvent(self, event: QtWidgets.QGraphicsSceneMouseEvent):
         self.setOpacity(1.0)
 
@@ -559,7 +532,15 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         self.folder_path = folder_path
 
-        self.setWindowTitle(os.path.basename(folder_path))
+        if os.path.ismount(folder_path):
+            storage_info = QtCore.QStorageInfo(folder_path)
+            if sys.platform == "win32":
+                storage_info.displayName().replace("/", "\\")
+            else:
+                storage_info.displayName()
+        else:
+            self.setWindowTitle(os.path.basename(folder_path))
+
         self.setGeometry(100, 100, 800, 600)
         self.spring_loaded = False  # will be set True if opened via spring–load
 
@@ -602,8 +583,27 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         self.scene.selectionChanged.connect(self.emit_selection_changed)
 
+        # When the clipboard changes, update the Edit menu.
+        QtWidgets.QApplication.clipboard().dataChanged.connect(self.paste_action_update)
+
+    def paste_action_update(self):
+        """Tell all open windows to update their Edit menu based on the clipboard contents."""
+        # FIXME: There is probably a more elegant way to do this.
+        for window in SpatialFilerWindow.open_windows.values():
+            window.update_edit_menu()
+
+    def update_edit_menu(self):
+        """Enable/disable the Paste action based on the clipboard contents."""
+        print("Window:", self, "was told to update its Edit menu.")
+        clipboard = QtWidgets.QApplication.clipboard()
+        mime_data = clipboard.mimeData()
+        if mime_data.hasFormat("application/x-fileitems"):
+            self.paste_action.setEnabled(True)
+        else:
+            self.paste_action.setEnabled(False)
+
     def emit_selection_changed(self):
-        # Do not try this when the window is already closed, for example when quitting the application.
+        # Do not try this when the window is already closed, for example when quitting the application. 
         if self.scene:
             self.selectionChanged.emit()
 
@@ -925,21 +925,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             operations = [(src_file, dest)]
             if drop_pos is not None:
                 self.drop_target_positions[dest] = drop_pos
-        self.run_file_operation(operations, operation)
-
-    def run_file_operation(self, operations, op_type):
-        total_size = sum(os.path.getsize(src) for src, _ in operations if os.path.exists(src))
-        progress_dialog = QtWidgets.QProgressDialog("Performing operation...", "Cancel", 0, 100, self)
-        progress_dialog.setWindowTitle("Progress")
-        progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
-        progress_dialog.show()
-
-        self.op_thread = FileOperationThread(operations, op_type, total_size)
-        self.op_thread.progress.connect(progress_dialog.setValue)
-        self.op_thread.error.connect(lambda msg: (progress_dialog.close(), QtWidgets.QMessageBox.critical(self, "Error", msg)))
-        self.op_thread.finished.connect(lambda: (progress_dialog.close(), self.refresh_view()))
-        progress_dialog.canceled.connect(self.op_thread.cancel)
-        self.op_thread.start()
+        fileops.FileOperation(self).run(operations, op_type=operation)
 
     def copy_selected(self):
         selected_items = self.scene.selectedItems()
@@ -968,7 +954,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         clipboard = QtWidgets.QApplication.clipboard()
         mime_data = QtCore.QMimeData()
-        mime_data.setData("application/x-fileitems", json.dumps({"files": self.clipboard, "operation": "cut"}).encode("utf-8"))
+        mime_data.setData("application/x-fileitems", json.dumps({"files": self.clipboard, "operation": "move"}).encode("utf-8"))
         clipboard.setMimeData(mime_data)
 
         self.statusBar().showMessage(f"Cut {len(self.clipboard)} item(s)")
@@ -997,7 +983,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             dest = os.path.join(self.folder_path, os.path.basename(src))
             operations.append((src, dest))
 
-        self.run_file_operation(operations, operation)
+        fileops.FileOperation(self).run(operations, op_type=operation)
 
         if operation == "cut":
             # Clear clipboard after moving
@@ -1090,6 +1076,13 @@ class MainObject:
         # If we are runnnig on Wayland, set the desktop window to be the root window
         if "WAYLAND_DISPLAY" in os.environ:
             print("FIXME: Wayland: How to set the desktop window to be the root window on Wayland?")
+            # https://drewdevault.com/2018/07/29/Wayland-shells.html
+            # Since wl_shell is not ready yet, we need to use xdg_shell
+            # https://pywayland.readthedocs.io/en/latest/module/protocol/xdg_shell.html
+
+            # TODO: Investigate whether we could use https://pywayland.readthedocs.io/en/latest/module/protocol/xdg_shell.html#pywayland.protocol.xdg_shell.XdgToplevel.move
+            # to simulate the broken Qt .move() of windows when running under Wayland.
+
 
         # On Windows, get the wallpaper and set it as the background of the window
         if sys.platform == "win32":
