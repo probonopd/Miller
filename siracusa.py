@@ -732,7 +732,17 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         # Skip hidden/system files
         folder_files = [name for name in folder_files if not name.startswith(".")]
-        folder_files = [name for name in folder_files if name.lower() not in ("desktop.ini", ".ds_store")]
+        folder_files = [name for name in folder_files if name.lower() not in ("desktop.ini", ".ds_store", LAYOUT_FILENAME)]
+
+        # Skip Desktop folder. NOTE: We might want to show it instead but make it show the desktop window when double-clicked.
+        # It is important that we do not break the Spatial paradigm by showing the Desktop folder in home directory as well as on the desktop.
+        if sys.platform != "win32":
+            # Check if we are in the user's home directory
+            if os.path.expanduser("~") == self.folder_path:
+                folder_files = [name for name in folder_files if name.lower() not in ("desktop",)]
+        else:
+            if self.folder_path.lower() == os.getenv('USERPROFILE').lower():
+                folder_files = [name for name in folder_files if name.lower() not in ("desktop",)]
 
         occupied_positions = set()  # Store occupied positions
 

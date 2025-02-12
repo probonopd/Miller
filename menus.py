@@ -108,8 +108,36 @@ def create_menus(window):
     move_to_trash_action.setEnabled(False)
     edit_menu.addAction(move_to_trash_action)
 
+    if isinstance(window, QtWidgets.QMainWindow) and hasattr(window, 'selectionChanged'):
+        copy_action.triggered.connect(window.copy_selected)
+        cut_action.triggered.connect(window.cut_selected)
+        window.paste_action.triggered.connect(window.paste_items)
+        delete_action.triggered.connect(window.delete_selected)
+        select_all_action.triggered.connect(window.select_all)
+        empty_trash_action.triggered.connect(window.empty_trash)
+        move_to_trash_action.triggered.connect(window.move_to_trash)
+        
+        window.selectionChanged.connect(lambda: cut_action.setEnabled(window.has_selected_items()))
+        window.selectionChanged.connect(lambda: copy_action.setEnabled(window.has_selected_items()))
+        window.selectionChanged.connect(lambda: delete_action.setEnabled(window.has_selected_items()))
+        window.selectionChanged.connect(lambda: empty_trash_action.setEnabled(window.has_trash_items()))
+        window.selectionChanged.connect(lambda: move_to_trash_action.setEnabled(window.has_selected_items()))
+        
+        cut_action.setEnabled(False)
+        copy_action.setEnabled(False)
+        window.paste_action.setEnabled(False)
+        delete_action.setEnabled(False)
+
     # Go menu
     window.go_menu = left_menubar.addMenu("Go")
+
+    if sys.platform == "win32":
+        run_action = QtGui.QAction("Run...", window)
+        run_action.triggered.connect(run_dialog)
+        window.go_menu.addAction(run_action)
+        run_action.setShortcut("Meta+R")
+        window.go_menu.addSeparator()
+
     home_action = QtGui.QAction("Home", window)
     home_action.setShortcut("Ctrl+Shift+H")
     home_action.triggered.connect(window.go_home)
@@ -120,36 +148,30 @@ def create_menus(window):
     window.go_menu.addAction(trash_action)
     window.go_menu.addSeparator()
 
-    if sys.platform == "win32":
-        run_action = QtGui.QAction("Run...", window)
-        run_action.triggered.connect(run_dialog)
-        window.go_menu.addAction(run_action)
-        run_action.setShortcut("Meta+R")
-
     window.go_menu.aboutToShow.connect(lambda: populate_volumes(window))
 
     # View Menu
     view_menu = left_menubar.addMenu("View")
 
-    # Sort Submenu
-    sort_menu = QtWidgets.QMenu("Sort", window)
-    view_menu.addMenu(sort_menu)
-
-    sort_name = QtGui.QAction("By Name", window)
-    sort_name.triggered.connect(lambda: window.sort_items("name"))
-    sort_menu.addAction(sort_name)
-
-    sort_date = QtGui.QAction("By Date", window)
-    sort_date.triggered.connect(lambda: window.sort_items("date"))
-    sort_menu.addAction(sort_date)
-
-    sort_size = QtGui.QAction("By Size", window)
-    sort_size.triggered.connect(lambda: window.sort_items("size"))
-    sort_menu.addAction(sort_size)
-
-    sort_type = QtGui.QAction("By Type", window)
-    sort_type.triggered.connect(lambda: window.sort_items("type"))
-    sort_menu.addAction(sort_type)
+    if window.__class__.__name__ == "SpatialFilerWindow":
+        align_action = QtGui.QAction("Align to Grid")
+        align_action.setShortcut("Ctrl+G")
+        align_action.triggered.connect(window.align_to_grid)
+        view_menu.addAction(align_action)
+        sort_menu = QtWidgets.QMenu("Sort", window)
+        view_menu.addMenu(sort_menu)
+        sort_name = QtGui.QAction("By Name", window)
+        sort_name.triggered.connect(lambda: window.sort_items("name"))
+        sort_menu.addAction(sort_name)
+        sort_date = QtGui.QAction("By Date", window)
+        sort_date.triggered.connect(lambda: window.sort_items("date"))
+        sort_menu.addAction(sort_date)
+        sort_size = QtGui.QAction("By Size", window)
+        sort_size.triggered.connect(lambda: window.sort_items("size"))
+        sort_menu.addAction(sort_size)
+        sort_type = QtGui.QAction("By Type", window)
+        sort_type.triggered.connect(lambda: window.sort_items("type"))
+        sort_menu.addAction(sort_type)
 
     # Help menu
     help_menu = left_menubar.addMenu("Help")
