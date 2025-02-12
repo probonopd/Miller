@@ -171,7 +171,7 @@ def populate_volumes(window):
 
     drives = QtCore.QStorageInfo.mountedVolumes()
     for drive in drives:
-        drive_action = QtGui.QAction(drive.rootPath(), window)
+        drive_action = QtGui.QAction(drive.displayName(), window)
         drive_action.triggered.connect(lambda checked, d=drive.rootPath(): window.go_drive(d))
         drive_action.is_volume = True
         window.go_menu.addAction(drive_action)
