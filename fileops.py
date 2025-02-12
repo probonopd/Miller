@@ -14,6 +14,10 @@ class FileOperation(QtCore.QObject):
         self.progress_dialog.setWindowModality(QtCore.Qt.WindowModality.WindowModal)
         self.progress_dialog.setAutoClose(True)
         self.progress_dialog.setAutoReset(True)
+        self.show_window_timer = QtCore.QTimer(self.parent)
+        self.show_window_timer.timeout.connect(self.show_progress_dialog)
+        self.show_window_timer.setSingleShot(True)
+        self.operation_finished = False
 
     def cancel(self):
         if hasattr(self, "op_thread"):
@@ -23,8 +27,11 @@ class FileOperation(QtCore.QObject):
     def showError(self, message: str):
         # Close the progress dialog if it's visible; if it hasn't been shown yet,
         # this will be effectively a no-op.
+        self.show_window_timer.timeout.disconnect()
         if self.progress_dialog.isVisible():
             self.progress_dialog.close()
+
+        self.show_window_timer.timeout.disconnect()
 
         # Create and execute an error message box.
         err_box = QtWidgets.QMessageBox(self.parent)
@@ -56,17 +63,29 @@ class FileOperation(QtCore.QObject):
 
         # At this point no errors, so show the progress dialog.
         self.progress_dialog.setValue(0)
-        self.progress_dialog.show()
+        self.operation_finished = False
+        self.show_window_timer.start(1000)
 
         self.op_thread = FileOperationThread(operations, op_type, total_size)
         self.op_thread.progress.connect(self.progress_dialog.setValue)
         # Connect error signal to our method; this ensures that the progress dialog closes
         # before or as the error dialog appears.
         self.op_thread.error.connect(self.showError)
-        self.op_thread.finished.connect(lambda: (self.progress_dialog.close(),
-                                                   self.parent.refresh_view() if hasattr(self.parent, "refresh_view") else None))
+        self.op_thread.finished.connect(self.operation_finished_slot)
         self.progress_dialog.canceled.connect(self.op_thread.cancel)
         self.op_thread.start()
+
+    def show_progress_dialog(self):
+        # Only show the progress dialog if the operation hasn't finished yet
+        # and if the current progress is still less than 30%.
+        if not self.operation_finished and self.progress_dialog.value() < 30:
+            self.progress_dialog.show()
+
+    def operation_finished_slot(self):
+        self.operation_finished = True
+        self.progress_dialog.close()
+        self.show_window_timer.timeout.disconnect()
+        self.parent.refresh_view() if hasattr(self.parent, "refresh_view") else None
 
 
 class FileOperationThread(QtCore.QThread):
