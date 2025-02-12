@@ -27,8 +27,9 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
-* Did we destroy dragging items onto other applications (e.g., music player) when we added the hotspots for dragging to the drag data?
-* We need to set nice names for disks based on the disk label if there is one. The nice name does not always match the name in the file system.
+* Look into https://github.com/flacjacket/pywayland/
+* How can we reliably do self.shutdown() when Alt-F4 is pressed on Windows? We need to catch the close event and call shutdown() there? Or is there a better way?
+* Windows for volumes (drives) are not closed when the drive is ejected. Probably because of a mismatch between the drive letter and the folder path. We need to match windows to drives by volume name more reliably.
 
 FOR TESTING:
 * WIndows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
@@ -52,6 +53,24 @@ item_height = grid_height = 60
 from styling import setup_icon_theme
 setup_icon_theme()
 icon_provider = QtWidgets.QFileIconProvider()
+
+# DriveWatcher: Detects newly inserted drives and updates the UI
+class DriveWatcher(QtCore.QThread):
+    newDriveDetected = QtCore.pyqtSignal(str)
+    driveRemoved = QtCore.pyqtSignal(str)
+
+    def run(self):
+        seen_drives = set(disk.rootPath() for disk in QtCore.QStorageInfo.mountedVolumes())
+        while True:
+            current_drives = set(disk.rootPath() for disk in QtCore.QStorageInfo.mountedVolumes())
+            new_drives = current_drives - seen_drives
+            for drive in new_drives:
+                self.newDriveDetected.emit(drive)
+            seen_drives = current_drives
+            drive_removed = seen_drives - current_drives
+            for drive in drive_removed:
+                self.driveRemoved.emit(drive)
+            time.sleep(5)  # Poll every 5 seconds
 
 
 # ---------------- Spatial Filer View (subclassed QGraphicsView for drag–drop, multiple selection, and spring–loaded folders) ----------------
@@ -85,14 +104,11 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
             super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event: QtGui.QDragMoveEvent):
-        print("Drag move event")
         if event.mimeData().hasFormat("application/x-fileitem") or event.mimeData().hasFormat("application/x-fileitems"):
             event.acceptProposedAction()
             pos = event.position().toPoint()
             item = self.itemAt(pos)
-            print("Hovering over item:", item)
             if isinstance(item, FileItem) and item.is_folder:
-                print("Hovering over folder in dragMoveEvent:", item.file_path)
                 if self.spring_item != item:
                     self.spring_item = item
                     self.spring_timer.start()
@@ -112,7 +128,6 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
             self.spring_timer.stop()
             self.spring_close_timer.stop()
         elif isinstance(item, FileItem) and item.is_folder:
-            print("Hovering over folder in mouseMoveEvent:", item)
             if self.spring_item != item:
                 self.spring_item = item
                 self.spring_timer.start()
@@ -120,8 +135,6 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
         else:
             self.spring_timer.stop()
             self.spring_close_timer.start()
-
-        # FIXME: Start a drag operation if the mouse leaves the window while dragging an item? Or do we have to start the drag even earlier?
 
         return super().mouseMoveEvent(event)
 
@@ -255,6 +268,15 @@ class FileItem(QtWidgets.QGraphicsObject):
 
         self.drag_start_position = None
 
+        if os.path.ismount(file_path):
+            storage_info = QtCore.QStorageInfo(file_path)
+            if sys.platform == "win32":
+                self.display_name = storage_info.displayName().replace("/", "\\") or file_path
+            else:
+                self.display_name = storage_info.displayName() or file_path
+        else:
+            self.display_name = os.path.basename(file_path)
+
     def boundingRect(self) -> QtCore.QRectF:
         # Accommodate the icon and file name.
         return QtCore.QRectF(0, 0, self.width, self.height)
@@ -269,18 +291,8 @@ class FileItem(QtWidgets.QGraphicsObject):
         # Ensure text position calculations are always performed
         metrics = QtGui.QFontMetrics(self.font)
         
-        if os.path.ismount(self.file_path):
-             # FIXME: While this is one way to do it, it is not optimal for performance. Instead we should set the nice name at the time of item creation.
-            storage_info = QtCore.QStorageInfo(self.file_path)
-            if sys.platform == "win32":
-                base_name = storage_info.displayName().replace("/", "\\")
-            else:
-                base_name = storage_info.displayName()
-        else:
-            base_name = os.path.basename(self.file_path)
-           
         space_before_and_after = 6
-        elided_text = metrics.elidedText(base_name, QtCore.Qt.TextElideMode.ElideMiddle, self.width - space_before_and_after)
+        elided_text = metrics.elidedText(self.display_name, QtCore.Qt.TextElideMode.ElideMiddle, self.width - space_before_and_after)
         text_width = metrics.horizontalAdvance(elided_text)
         text_height = metrics.height()
         text_x = (self.width - text_width) / 2 + 3 - space_before_and_after/2
@@ -425,6 +437,10 @@ class FileItem(QtWidgets.QGraphicsObject):
         }
         mime_data.setData("application/x-fileitems", json.dumps(drag_data).encode("utf-8"))
 
+        # For dragging to external applications, set the URLs of the selected items.
+        file_paths = [itm.file_path for itm in selected_items if isinstance(itm, FileItem)]
+        mime_data.setUrls([QtCore.QUrl.fromLocalFile(path) for path in file_paths])
+
         # Finalize the drag setup.
         drag.setPixmap(pixmap)
         drag.setHotSpot(hotspot)
@@ -470,13 +486,23 @@ class FileItem(QtWidgets.QGraphicsObject):
         if sys.platform == "win32" and self.file_path.lower().endswith(".lnk"):
             target_path = self.resolve_lnk(self.file_path)
 
+        self.animate_opening()
+
         if os.path.isdir(target_path):
             self.openFolderRequested.emit(target_path)
         else:
             url = QtCore.QUrl.fromLocalFile(target_path)
             QtGui.QDesktopServices.openUrl(url)
 
-        # TODO: Animate the item when opened: Increase size x2 and fade out, then reset.
+    def animate_opening(self):
+        """Animate the item when opened: Increase size x2 and fade out, then reset."""
+        animation = QtCore.QPropertyAnimation(self, b"scale")
+        animation.setDuration(300)
+        animation.setStartValue(1.0)
+        animation.setEndValue(2.0)
+        animation.setEasingCurve(QtCore.QEasingCurve.Type.InOutQuad)
+        animation.finished.connect(lambda: self.setScale(1.0))  # Reset after animation
+        animation.start()
 
     def contextMenuEvent(self, event: QtWidgets.QGraphicsSceneContextMenuEvent):
         """Right-click selects the item before opening the context menu."""
@@ -1064,6 +1090,11 @@ class MainObject:
         desktop_window = SpatialFilerWindow.get_or_create_window(desktop)
         desktop_window.setWindowFlags(QtCore.Qt.WindowType.FramelessWindowHint)
         desktop_window.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnBottomHint)
+        self.drive_watcher = DriveWatcher()
+        # self.drive_watcher.newDriveDetected.connect(lambda drive: SpatialFilerWindow.get_or_create_window(drive))
+        self.drive_watcher.newDriveDetected.connect(lambda drive: desktop_window.refresh_view())
+        self.drive_watcher.driveRemoved.connect(lambda drive: self.handle_drive_removal(drive))
+        self.drive_watcher.start()
         desktop_window.move(screen.geometry().x(), screen.geometry().y())
         desktop_window.resize(screen.geometry().width(), screen.geometry().height())
         desktop_window.statusBar().hide()
@@ -1079,8 +1110,9 @@ class MainObject:
         if "WAYLAND_DISPLAY" in os.environ:
             print("FIXME: Wayland: How to set the desktop window to be the root window on Wayland?")
             # https://drewdevault.com/2018/07/29/Wayland-shells.html
-            # Since wl_shell is not ready yet, we need to use xdg_shell
+            # Since wl_shell is not ready yet, we need to use xdg_shell?
             # https://pywayland.readthedocs.io/en/latest/module/protocol/xdg_shell.html
+            # Look into https://github.com/flacjacket/pywayland/
 
             # TODO: Investigate whether we could use https://pywayland.readthedocs.io/en/latest/module/protocol/xdg_shell.html#pywayland.protocol.xdg_shell.XdgToplevel.move
             # to simulate the broken Qt .move() of windows when running under Wayland.
@@ -1134,6 +1166,15 @@ class MainObject:
 
         desktop_window.show()
         self.desktop_window = desktop_window
+
+    def handle_drive_removal(self, drive):
+        print(f"Drive {drive} removed")
+        # Remove the drive from the desktop window
+        self.desktop_window.refresh
+        # Close the window if it was the only window open
+        if drive in SpatialFilerWindow.open_windows:
+            window = SpatialFilerWindow.open_windows[drive]
+            window.close()
 
     def win32_populate_windows_menu(self):
         # Clear the menu

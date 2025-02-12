@@ -8,8 +8,8 @@ including File, Edit, Go, and Help menus with respective actions and event conne
 """
 
 import os, sys
-from PyQt6 import QtWidgets
-from PyQt6 import QtGui
+
+from PyQt6 import  QtGui, QtCore, QtWidgets
 
 def create_menus(window):
     """
@@ -39,8 +39,7 @@ def create_menus(window):
         unmap_drive_action = QtGui.QAction("Unmap Network Drive", window)
         unmap_drive_action.triggered.connect(windows_integration.unmap_network_drive)
 
-    file_menu.addSeparator()
-    if os.name == 'nt':
+        file_menu.addSeparator()
         file_menu.addAction(map_drive_action)
         file_menu.addAction(unmap_drive_action)
         file_menu.addSeparator()
@@ -49,7 +48,7 @@ def create_menus(window):
     close_action.setShortcut("Ctrl+W")
     close_action.triggered.connect(window.close)
     file_menu.addAction(close_action)
-    
+
     # Edit Menu
     edit_menu = menubar.addMenu("Edit")
 
@@ -87,7 +86,7 @@ def create_menus(window):
     move_to_trash_action.setEnabled(False)
     edit_menu.addAction(move_to_trash_action)
     
-    if window.__class__.__name__ == "SpatialFilerWindow":
+    if isinstance(window, QtWidgets.QMainWindow) and hasattr(window, 'selectionChanged'):
         copy_action.triggered.connect(window.copy_selected)
         cut_action.triggered.connect(window.cut_selected)
         window.paste_action.triggered.connect(window.paste_items)
@@ -95,43 +94,37 @@ def create_menus(window):
         select_all_action.triggered.connect(window.select_all)
         empty_trash_action.triggered.connect(window.empty_trash)
         move_to_trash_action.triggered.connect(window.move_to_trash)
-        # Enable selectively based on the current selection
+        
         window.selectionChanged.connect(lambda: cut_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: copy_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: delete_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: empty_trash_action.setEnabled(window.has_trash_items()))
         window.selectionChanged.connect(lambda: move_to_trash_action.setEnabled(window.has_selected_items()))
-        # Initially disable the actions, they will be enabled when the user selects items
+        
         cut_action.setEnabled(False)
         copy_action.setEnabled(False)
         window.paste_action.setEnabled(False)
         delete_action.setEnabled(False)
-
+        
     # Go menu
-    go_menu = menubar.addMenu("Go")
+    window.go_menu = menubar.addMenu("Go")
     home_action = QtGui.QAction("Home", window)
     home_action.setShortcut("Ctrl+Shift+H")
     home_action.triggered.connect(window.go_home)
     trash_action = QtGui.QAction("Trash", window)
     trash_action.triggered.connect(window.go_trash)
     trash_action.setShortcut("Ctrl+Shift+T")
-    go_menu.addAction(home_action)
-    go_menu.addAction(trash_action)
-    go_menu.addSeparator()
+    window.go_menu.addAction(home_action)
+    window.go_menu.addAction(trash_action)
+    window.go_menu.addSeparator()
 
     if sys.platform == "win32":
-        from windows_map_drives import get_drive_letters
-        for drive in get_drive_letters():
-            drive_action = QtGui.QAction(drive, window)
-            drive_action.triggered.connect(lambda checked, d=drive: window.go_drive(d))
-            go_menu.addAction(drive_action)
-        go_menu.addSeparator()
-
-        # Windows-R run dialog
         run_action = QtGui.QAction("Run...", window)
         run_action.triggered.connect(run_dialog)
-        go_menu.addAction(run_action)
+        window.go_menu.addAction(run_action)
         run_action.setShortcut("Meta+R")
+
+    window.go_menu.aboutToShow.connect(lambda: populate_volumes(window))
 
     # View Menu
     view_menu = menubar.addMenu("View")
@@ -166,13 +159,28 @@ def create_menus(window):
     if "log_console" in sys.modules:
         app = QtWidgets.QApplication.instance()
         app.log_console.add_menu_items(help_menu, window)
+        
+def populate_volumes(window):
+    """
+    Populate the volumes list with the available drives using QtCore.QStorageInfo.
+    Clears old entries before repopulating.
+    """
+    for action in window.go_menu.actions():
+        if hasattr(action, "is_volume") and action.is_volume:
+            window.go_menu.removeAction(action)
 
+    drives = QtCore.QStorageInfo.mountedVolumes()
+    for drive in drives:
+        drive_action = QtGui.QAction(drive.rootPath(), window)
+        drive_action.triggered.connect(lambda checked, d=drive.rootPath(): window.go_drive(d))
+        drive_action.is_volume = True
+        window.go_menu.addAction(drive_action)
 
-def run_dialog(self):
+def run_dialog():
     """
     Open the Windows Run dialog.
     """
-    if not sys.platform == "win32":
+    if sys.platform != "win32":
         return
     from win32com.client import Dispatch
     shell = Dispatch("WScript.Shell")
