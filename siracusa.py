@@ -27,12 +27,14 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
+* Get rid of open_windows completely. Instead, whenever a window is created, set an attribute with the normalized path on it. Then, whenever a window shall be opened, check if a window with that attribute already exists. This way, we can get rid of the open_windows dictionary which is not robust and may get out of sync.
 * Look into https://github.com/flacjacket/pywayland/
 * How can we reliably do self.shutdown() when Alt-F4 is pressed on Windows? We need to catch the close event and call shutdown() there? Or is there a better way?
-* Windows for volumes (drives) are not closed when the drive is ejected. Probably because of a mismatch between the drive letter and the folder path. We need to match windows to drives by volume name more reliably.
+* Use a separate file windows_eject.py to handle ejecting volumes on windows.
+* Can we register Meta-R as a global hotkey in Windows so that it also works when the app is not in focus?  
 
 FOR TESTING:
-* WIndows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
+* Windows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
 """
 
 import os, sys, signal, json, shutil, subprocess, time
@@ -41,7 +43,7 @@ from PyQt6 import QtWidgets, QtGui, QtCore
 
 if sys.platform == "win32":
     from win32com.client import Dispatch
-    import win32gui, win32con # For managing windows
+    import windows_struts
 
 import getinfo, menus, fileops
 
@@ -523,6 +525,10 @@ class FileItem(QtWidgets.QGraphicsObject):
         open_action = menu.addAction("Open")
         info_action = menu.addAction("Get Info...")
         delete_action = menu.addAction("Delete")
+        menu.addSeparator()
+        if self.volume_name:
+            eject_action = menu.addAction("Eject")
+            eject_action.triggered.connect(self.eject_volume)
 
         action = menu.exec(event.screenPos())
 
@@ -542,13 +548,18 @@ class FileItem(QtWidgets.QGraphicsObject):
             if isinstance(main_window, SpatialFilerWindow):
                 main_window.delete_selected()
 
-
     def show_info(self):
         main_window = self.scene().views()[0].window()  # Get the main window
         if isinstance(main_window, SpatialFilerWindow):
             main_window.get_info()
 
-
+    def eject_volume(self):
+        if not self.volume_name:
+            # It is not a volume
+            return
+        print("TODO: Ejecting volume:", self.volume_name, "with file_path:", self.file_path)
+        parent = self.scene().views()[0] if self.scene().views() else None
+        QtWidgets.QMessageBox.information(parent, "Eject " + self.file_path, "Not implemented yet for this platform.")
 
 # ---------------- Spatial Filer Window (main file/folder view) ----------------
 class SpatialFilerWindow(QtWidgets.QMainWindow):
@@ -562,6 +573,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         super().__init__()
 
         self.folder_path = folder_path
+
+        self.is_desktop_window = (folder_path == QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.StandardLocation.DesktopLocation))
 
         if os.path.ismount(folder_path):
             storage_info = QtCore.QStorageInfo(folder_path)
@@ -691,11 +704,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         menus.create_menus(self)
 
     def load_files(self):
-        
-        # Check if this is the Desktop in fullscreen mode
-        is_desktop_fullscreen = self.folder_path == QtCore.QStandardPaths.writableLocation(
-            QtCore.QStandardPaths.StandardLocation.DesktopLocation
-        )
 
         try:
             folder_files = os.listdir(self.folder_path)
@@ -704,7 +712,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             return
         
         # Add every disk in the system
-        if is_desktop_fullscreen:
+        if self.is_desktop_window:
             print("Adding disks")
             for disk in QtCore.QDir.drives():
                 # The name of the disk is the first part of the path, e.g. "C:" or "D:"
@@ -742,7 +750,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         def find_next_available_position():
             """Finds the first free position based on layout direction."""
-            if is_desktop_fullscreen:
+            if self.is_desktop_window:
                 # Desktop: Layout from top-right to bottom-left
                 x = (self.width() // grid_width) - 1
                 y = 0
@@ -895,17 +903,12 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             except Exception:
                 return 0
 
-        # Check if this is the Desktop in fullscreen mode
-        is_desktop_fullscreen = self.folder_path == QtCore.QStandardPaths.writableLocation(
-            QtCore.QStandardPaths.StandardLocation.DesktopLocation
-        )
-
         # Sort items based on the selected criterion
         sorted_items = sorted(self.file_items, key=get_key)
 
         occupied_positions = set()
 
-        if is_desktop_fullscreen:
+        if self.is_desktop_window:
             # Desktop: Move downward first, then shift left
             x = (self.width() // grid_width) - 1  # Start at rightmost column
             y = 0
@@ -1025,7 +1028,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.about(
             self,
             "About Spatial Filer",
-            "Spatial Filer Demo\n\nA spatial file manager implemented in PyQt6\nInspired by Siracusa-style spatial file managers.",
+            "Spatial Filer\n\nA spatial file manager implemented in PyQt6\nInspired by Siracusa-style spatial file managers.\n\nSee https://arstechnica.com/gadgets/2003/04/finder/\nfor a description of what that means.",
         )
 
     def new_folder(self):
@@ -1131,42 +1134,6 @@ class MainObject:
                                                                                                                  QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                                                                                                                  QtCore.Qt.TransformationMode.SmoothTransformation)))
             
-        # TODO: Find a way to watch for newly inserted drives and add them to the desktop window; QStorageInfo does not seem to have this capability?
-
-        # Remove the last item in the first menu and replace it with a Quit action (Ctrl+Q)
-        file_menu = desktop_window.menuBar().findChildren(QtWidgets.QMenu)[0]
-        quit_action = QtGui.QAction("Quit", desktop_window)
-        quit_action.setShortcut("Ctrl+Q")
-        quit_action.triggered.connect(QtWidgets.QApplication.quit)
-        file_menu.removeAction(file_menu.actions()[-1])
-        file_menu.addAction(quit_action)
-
-        # Shutdown action
-        shutdown_action = QtGui.QAction("Shut Down", desktop_window)
-        shutdown_action.triggered.connect(self.shutdown)
-        file_menu.addAction(shutdown_action)
-
-        # Clock
-        # TODO: Move to the right-hand side of the menu bar
-        clock_menu = QtWidgets.QMenu(desktop_window)
-        clock_menu.setTitle(time.strftime("%H:%M"))
-        desktop_window.menuBar().addMenu(clock_menu)
-        self.clock_timer = QtCore.QTimer(desktop_window)
-        self.clock_timer.timeout.connect(lambda: clock_menu.setTitle(time.strftime("%H:%M")))
-        self.clock_timer.start(1000)
-        date_action = QtGui.QAction(time.strftime("%A, %B %d, %Y"), desktop_window)
-        date_action.setEnabled(False)
-        clock_menu.addAction(date_action)
-        clock_menu.aboutToShow.connect(lambda: date_action.setText(time.strftime("%A, %B %d, %Y")))
-
-        # "Windows" menu for Windows users showing all windows
-        if sys.platform == "win32":
-            self.windows_menu = QtWidgets.QMenu(desktop_window)
-            self.windows_menu.setTitle("Windows")
-            desktop_window.menuBar().addMenu(self.windows_menu)
-            # When opening the Windows menu, populate it with all open windows
-            self.windows_menu.aboutToShow.connect(self.win32_populate_windows_menu)
-
         desktop_window.show()
         self.desktop_window = desktop_window
 
@@ -1191,67 +1158,6 @@ class MainObject:
 
         # Refresh desktop to remove the drive icon
         self.desktop_window.refresh_view()
-
-    def win32_populate_windows_menu(self):
-        # Clear the menu
-        self.windows_menu.clear()
-        # Use the Windows API to get a list of all open windows
-        def window_enum_handler(hwnd, windows):
-            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
-                windows.append((hwnd, win32gui.GetWindowText(hwnd)))
-            return True
-        windows = []
-        win32gui.EnumWindows(window_enum_handler, windows)
-        windows_menu = QtWidgets.QMenu(self.desktop_window)
-        windows_menu.setTitle("Windows")
-        for hwnd, title in windows:
-            if title != "Desktop":
-                action = windows_menu.addAction(title)
-                action.triggered.connect(lambda checked, hwnd=hwnd: self.win32_restore_window(hwnd))
-                self.windows_menu.addAction(action)
-        self.windows_menu.addSeparator()
-        # "Show Desktop" action
-        show_desktop_action = self.windows_menu.addAction("Show Desktop")
-        show_desktop_action.triggered.connect(self.win32_minimize_all_windows)
-
-    def win32_minimize_all_windows(self):
-        def window_enum_handler(hwnd, windows):
-            if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
-                windows.append((hwnd, win32gui.GetWindowText(hwnd)))
-            return True
-        windows = []
-        win32gui.EnumWindows(window_enum_handler, windows)
-        for hwnd, title in windows:
-            # Minimize all windows except the desktop window (called "Desktop")
-            if title != "Desktop":
-                win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
-
-    def win32_restore_window(self, hwnd):
-        # If minimized, restore the window
-        if win32gui.IsIconic(hwnd):
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
-        win32gui.SetForegroundWindow(hwnd)
-
-    def shutdown(self):
-        message_box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Icon.Question, "Shut Down", "Are you sure you want to shut down the computer?\nUnsaved work will be lost.", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
-        message_box.setIcon(QtWidgets.QMessageBox.Icon.Question)
-        message_box.setDefaultButton(QtWidgets.QMessageBox.StandardButton.No)
-        if message_box.exec() == QtWidgets.QMessageBox.StandardButton.Yes:
-            if sys.platform == "win32":
-                try:
-                    result = subprocess.run(["shutdown", "/s", "/t", "0"], capture_output=True)
-                    if stderr := result.stderr.decode("utf-8"):
-                        QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {stderr}")
-                except Exception as e:
-                    QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {e}")
-            else:
-                try:
-                    result = subprocess.run(["shutdown", "-h", "now"], capture_output=True)
-                    if stderr := result.stderr.decode("utf-8"):
-                        QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {stderr}")
-                except Exception as e:
-                    QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {e}")
 
 
 if __name__ == "__main__":
@@ -1284,5 +1190,10 @@ if __name__ == "__main__":
     # Check for the presence of WAYLAND_DISPLAY and show info box for Wayland users
     if "WAYLAND_DISPLAY" in os.environ:
         QtWidgets.QMessageBox.information(m.desktop_window, "Wayland", "Spatial Filer does not work properly on Wayland yet.\nWindows are all over the place.\nMenu mouse releasing doesn't work properly.")
+
+    # Reserving space for the menu bar on Windows
+    if sys.platform == "win32":
+        appbar = windows_struts.Strut()
+        app.aboutToQuit.connect(appbar.restore_work_area)
 
     sys.exit(app.exec())
