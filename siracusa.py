@@ -37,7 +37,7 @@ FOR TESTING:
 * Windows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
 """
 
-import os, sys, signal, json, shutil, subprocess, time
+import os, sys, signal, json, shutil, math, time
 
 from PyQt6 import QtWidgets, QtGui, QtCore
 
@@ -99,6 +99,14 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
         self.spring_close_timer.timeout.connect(self.handleSpringClose)
         # 0px border is crucial for scroll bars to be visible when needed and invisible when not needed.
         self.setStyleSheet("QGraphicsView { border: 0px; }")
+
+    def keyPressEvent(self, event):
+        if event.key() in (QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Down, 
+                           QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Right):
+            print(f"Forwarding arrow key: {event.key()}")  # Debugging
+            self.parent().keyPressEvent(event)  # Send to the main window
+        else:
+            super().keyPressEvent(event)  # Process normally
 
     def dragEnterEvent(self, event: QtGui.QDragEnterEvent):
         if (event.mimeData().hasFormat("application/x-fileitem") or
@@ -629,6 +637,16 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         # When the clipboard changes, update the Edit menu.
         QtWidgets.QApplication.clipboard().dataChanged.connect(self.paste_action_update)
 
+        # Text the user is typing
+        self.typed_text = ""
+        self.search_timer = QtCore.QTimer(self)
+        self.search_timer.setSingleShot(True)
+        self.search_timer.setInterval(1000)  # Reset buffer after 1 second of inactivity
+        self.search_timer.timeout.connect(self.clear_typed_text)
+
+        # Ensure the window gets typed text events even if an item is selected.
+        self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
+
     def paste_action_update(self):
         """Tell all open windows to update their Edit menu based on the clipboard contents."""
         # FIXME: There is probably a more elegant way to do this.
@@ -874,11 +892,107 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             self.scene.setSceneRect(0, 0, self.width(), self.height())
 
     def keyPressEvent(self, event):
-        """Handle keyboard shortcuts that have no menu item/action."""
-        if event.key() == QtCore.Qt.Key.Key_F5:
+        key = event.key()
+        if key in (QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Right):
+            self.navigate_selection(key)
+        elif key == QtCore.Qt.Key.Key_F5:
             self.refresh_view()
-        else:
-            super().keyPressEvent(event)
+            return
+
+        if key == QtCore.Qt.Key.Key_Backspace:
+            self.typed_text = self.typed_text[:-1]
+        elif key == QtCore.Qt.Key.Key_Escape:
+            self.clear_typed_text()
+        elif 32 <= event.key() <= 126:  # Printable ASCII range
+            self.typed_text += event.text()
+
+        self.search_timer.start()
+        self.highlight_matching_item()
+
+        super().keyPressEvent(event)  # Let other key events propagate
+
+    def clear_typed_text(self):
+        self.typed_text = ""
+        
+    def highlight_matching_item(self):
+        """Select and highlight the first matching file."""
+        if not self.typed_text:
+            return
+
+        for item in self.file_items:
+            if os.path.basename(item.file_path).lower().startswith(self.typed_text.lower()):
+                self.scene.clearSelection()
+                item.setSelected(True)
+                self.view.centerOn(item)
+                return
+            
+    def navigate_selection(self, key):
+        """
+        Select the closest neighbor by Euclidean distance.
+        FIXME: This skips the nearest neighbor and selects the next closest one after it. We want the nearest neighbor.
+        """
+        if not self.file_items:
+            return
+
+        # Get the currently selected item (or default to the first item)
+        selected_items = self.scene.selectedItems()
+        if not selected_items:
+            selected_items = [self.file_items[0]]
+        selected_item = selected_items[0]
+        selected_pos = selected_item.pos()
+
+        # Determine arrow direction as a unit vector based on the pressed key.
+        # (If an unsupported key is pressed, we simply consider all items.)
+        arrow_dir = None
+        if key == QtCore.Qt.Key.Key_Up:
+            arrow_dir = QtCore.QPointF(0, -1)
+        elif key == QtCore.Qt.Key.Key_Down:
+            arrow_dir = QtCore.QPointF(0, 1)
+        elif key == QtCore.Qt.Key.Key_Left:
+            arrow_dir = QtCore.QPointF(-1, 0)
+        elif key == QtCore.Qt.Key.Key_Right:
+            arrow_dir = QtCore.QPointF(1, 0)
+
+        best_item = None
+        best_distance = float('inf')
+        candidates = []
+
+        # First pass: if an arrow direction is provided, consider only items in the forward half-plane.
+        for item in self.file_items:
+            if item == selected_item:
+                continue
+            item_pos = item.pos()
+            delta = QtCore.QPointF(item_pos.x() - selected_pos.x(),
+                                item_pos.y() - selected_pos.y())
+            if arrow_dir is not None:
+                # Compute projection of delta onto arrow direction.
+                projection = delta.x() * arrow_dir.x() + delta.y() * arrow_dir.y()
+                if projection <= 0:
+                    continue  # Candidate is not in the forward half-plane.
+            distance = math.hypot(delta.x(), delta.y())
+            candidates.append((distance, item))
+        
+        # If no candidate meets the directional criterion, fallback to all items.
+        if not candidates:
+            for item in self.file_items:
+                if item == selected_item:
+                    continue
+                item_pos = item.pos()
+                delta = QtCore.QPointF(item_pos.x() - selected_pos.x(),
+                                    item_pos.y() - selected_pos.y())
+                distance = math.hypot(delta.x(), delta.y())
+                candidates.append((distance, item))
+        
+        # Choose the candidate with the smallest Euclidean distance.
+        for distance, item in candidates:
+            if distance < best_distance:
+                best_distance = distance
+                best_item = item
+
+        if best_item:
+            self.scene.clearSelection()
+            best_item.setSelected(True)
+            self.view.centerOn(best_item)
 
     def refresh_view(self):
         self.layout_data = self.get_layout()  # store current positions
