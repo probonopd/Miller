@@ -63,15 +63,17 @@ class DriveWatcher(QtCore.QThread):
         seen_drives = set(disk.rootPath() for disk in QtCore.QStorageInfo.mountedVolumes())
         while True:
             current_drives = set(disk.rootPath() for disk in QtCore.QStorageInfo.mountedVolumes())
+
             new_drives = current_drives - seen_drives
             for drive in new_drives:
                 self.newDriveDetected.emit(drive)
-            seen_drives = current_drives
+
             drive_removed = seen_drives - current_drives
             for drive in drive_removed:
                 self.driveRemoved.emit(drive)
-            time.sleep(5)  # Poll every 5 seconds
 
+            seen_drives = current_drives
+            time.sleep(3) # Poll every 3 seconds; FIXME: Find a solution that doesn't involve polling
 
 # ---------------- Spatial Filer View (subclassed QGraphicsView for drag–drop, multiple selection, and spring–loaded folders) ----------------
 class SpatialFilerView(QtWidgets.QGraphicsView):
@@ -270,11 +272,13 @@ class FileItem(QtWidgets.QGraphicsObject):
 
         if os.path.ismount(file_path):
             storage_info = QtCore.QStorageInfo(file_path)
+            self.volume_name = storage_info.displayName() or file_path  # Store volume name separately
             if sys.platform == "win32":
-                self.display_name = storage_info.displayName().replace("/", "\\") or file_path
+                self.display_name = self.volume_name.replace("/", "\\")
             else:
-                self.display_name = storage_info.displayName() or file_path
+                self.display_name = self.volume_name
         else:
+            self.volume_name = None
             self.display_name = os.path.basename(file_path)
 
     def boundingRect(self) -> QtCore.QRectF:
@@ -561,11 +565,10 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         if os.path.ismount(folder_path):
             storage_info = QtCore.QStorageInfo(folder_path)
-            if sys.platform == "win32":
-                storage_info.displayName().replace("/", "\\")
-            else:
-                storage_info.displayName()
+            self.volume_name = storage_info.displayName() or None  # Store volume name
+            self.setWindowTitle(self.volume_name or folder_path)
         else:
+            self.volume_name = None
             self.setWindowTitle(os.path.basename(folder_path))
 
         self.setGeometry(100, 100, 800, 600)
@@ -1169,12 +1172,25 @@ class MainObject:
 
     def handle_drive_removal(self, drive):
         print(f"Drive {drive} removed")
-        # Remove the drive from the desktop window
-        self.desktop_window.refresh
-        # Close the window if it was the only window open
-        if drive in SpatialFilerWindow.open_windows:
-            window = SpatialFilerWindow.open_windows[drive]
-            window.close()
+
+        # Normalize drive path (e.g., 'D:/' → 'D:\\' for Windows)
+        normalized_drive = os.path.normpath(drive)
+
+        # Get volume name of removed drive
+        removed_volume_name = QtCore.QStorageInfo(drive).displayName()
+        matching_keys = [path for path, window in SpatialFilerWindow.open_windows.items()
+                        if os.path.normpath(path) == normalized_drive or window.volume_name == removed_volume_name]
+
+        for key in matching_keys:
+            print(f"Closing window for {SpatialFilerWindow.open_windows[key].volume_name} (was at {key})")
+            SpatialFilerWindow.open_windows[key].close()
+            try:
+                del SpatialFilerWindow.open_windows[key]
+            except KeyError:
+                print(f"Warning: Window entry for {key} was already removed.")
+
+        # Refresh desktop to remove the drive icon
+        self.desktop_window.refresh_view()
 
     def win32_populate_windows_menu(self):
         # Clear the menu
