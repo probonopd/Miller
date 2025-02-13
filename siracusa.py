@@ -579,7 +579,7 @@ class FileItem(QtWidgets.QGraphicsObject):
         if sys.platform == "win32":
             success = windows_eject.WindowsEjector().eject_drive(normalized_drive[0])  # Use only the drive letter
         else:
-            success = os.system(f"umount {normalized_drive}") == 0
+            success = os.system(f"eject {normalized_drive}") == 0
             
         if success:
             print(f"Successfully ejected {normalized_drive}")
