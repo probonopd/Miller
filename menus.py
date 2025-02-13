@@ -152,7 +152,6 @@ def create_menus(window):
 
     if sys.platform == "win32":
         run_action = QtGui.QAction("Run...", window)
-        run_action.triggered.connect(run_dialog)
         window.go_menu.addAction(run_action)
         run_action.setShortcut("Meta+R")
         window.go_menu.addSeparator()
@@ -315,21 +314,13 @@ def populate_volumes(window):
             window.go_menu.removeAction(action)
 
     drives = QtCore.QStorageInfo.mountedVolumes()
+    # Remove all that start with anything but /mnt, /run/media, /media, /Volumes, /Volumes.localized, /net
+    drives = [drive for drive in drives if os.path.commonprefix(["/mnt", "/run/media", "/media", "/Volumes", "/Volumes.localized", "/net"]).startswith(drive.rootPath())]
     for drive in drives:
         drive_action = QtGui.QAction(drive.displayName(), window)
         drive_action.triggered.connect(lambda checked, d=drive.rootPath(): window.open_drive(d))
         drive_action.is_volume = True
         window.go_menu.addAction(drive_action)
-
-def run_dialog():
-    """
-    Open the Windows Run dialog.
-    """
-    if sys.platform != "win32":
-        return
-    from win32com.client import Dispatch
-    shell = Dispatch("WScript.Shell")
-    shell.Run("rundll32.exe shell32.dll,#61")
 
 def show_current_time(window):
     """

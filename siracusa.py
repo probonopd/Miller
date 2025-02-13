@@ -37,13 +37,14 @@ FOR TESTING:
 * Windows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
 """
 
-import os, sys, signal, json, shutil, math, time
+import os, sys, signal, json, shutil, math, time, ctypes
 
 from PyQt6 import QtWidgets, QtGui, QtCore
 
 if sys.platform == "win32":
     from win32com.client import Dispatch
     import windows_struts
+    import windows_hotkeys
 
 import getinfo, menus, fileops
 
@@ -270,7 +271,7 @@ class FileItem(QtWidgets.QGraphicsObject):
         self.is_folder = os.path.isdir(file_path)
 
         file_info = QtCore.QFileInfo(file_path)
-        if self.is_folder:
+        if self.is_folder and not os.path.ismount(file_path):
             self.icon = QtGui.QIcon.fromTheme("folder")
         else:
             self.icon = icon_provider.icon(file_info)
@@ -1357,6 +1358,11 @@ class MainObject:
             
         desktop_window.show()
         self.desktop_window = desktop_window
+
+        # Register global hotkeys
+        if sys.platform == "win32":
+            hwnd = int(desktop_window.winId())
+            windows_hotkeys.HotKeyManager(hwnd).run()
 
     def handle_drive_removal(self, drive):
         print(f"Drive {drive} removed")
