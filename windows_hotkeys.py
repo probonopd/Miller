@@ -9,8 +9,8 @@ from ctypes import byref, wintypes
 from win32com.client import Dispatch
 
 class HotKeyManager:
-    def __init__(self, desktop_window_hwnd=None):
-        self.desktop_window_hwnd = desktop_window_hwnd
+    def __init__(self, desktop_window=None):
+        self.desktop_window_hwnd = int(desktop_window.winId())
         self.user32 = ctypes.windll.user32
         self.VK_R = 0x52
 
@@ -33,14 +33,11 @@ class HotKeyManager:
         print("Alt+F4 pressed")
         hwnd = self.user32.GetForegroundWindow()
         print("Foreground window:", hwnd)
-        if self.desktop_window_hwnd:
+        is_shift_pressed = self.user32.GetKeyState(win32con.VK_SHIFT) & 0x8000
+        if self.desktop_window_hwnd and not is_shift_pressed:
             if hwnd == self.desktop_window_hwnd:
                 print("Desktop window is active, not closing")
                 return
-        """buf = ctypes.create_string_buffer(512)
-        self.user32.GetWindowTextA(hwnd, buf, len(buf))
-        print(buf.value)
-        if buf.value != b"Desktop":"""
         self.user32.PostMessageA(hwnd, win32con.WM_CLOSE, 0, 0)
 
     def handle_win_r(self):

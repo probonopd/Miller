@@ -656,7 +656,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             # Disable the ability to close the desktop window
             self.setWindowFlag(QtCore.Qt.WindowType.WindowCloseButtonHint, False)
             self.closeEvent = lambda event: None
-            self.close = lambda: None
 
     def close(self):
         if self.folder_path in SpatialFilerWindow.open_windows:
@@ -1245,7 +1244,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             self.clipboard_operation = None
             clipboard.clear()
 
-
     def show_about(self):
         QtWidgets.QMessageBox.about(
             self,
@@ -1357,12 +1355,17 @@ class MainObject:
                                                                                                                  QtCore.Qt.TransformationMode.SmoothTransformation)))
             
         desktop_window.show()
+
         self.desktop_window = desktop_window
 
         # Register global hotkeys
         if sys.platform == "win32":
-            hwnd = int(desktop_window.winId())
-            windows_hotkeys.HotKeyManager(hwnd).run()
+            self.hotkey_manager =  windows_hotkeys.HotKeyManager(desktop_window).run()
+            # When the application gets killed or otherwise exits, unregister the hotkeys
+            app.aboutToQuit.connect(self.hotkey_manager.unregister_hotkeys)
+
+        # Ctrl+Shift+F4 quits the application
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Shift+F4"), desktop_window, QtWidgets.QApplication.quit)
 
     def handle_drive_removal(self, drive):
         print(f"Drive {drive} removed")
