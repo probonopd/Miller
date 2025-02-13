@@ -245,7 +245,7 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
             current_item = self.itemAt(self.mapFromGlobal(QtGui.QCursor.pos()))
             if current_item != self.spring_item:
                 # If a spring–loaded window exists for this folder, close it.
-                window = SpatialFilerWindow.open_windows.get(self.spring_item.file_path)
+                window = open_windows.get(self.spring_item.file_path)
                 if window is not None and getattr(window, "spring_loaded", False):
                     window.close()
                 self.spring_item = None
@@ -585,23 +585,15 @@ class FileItem(QtWidgets.QGraphicsObject):
             print(f"Successfully ejected {normalized_drive}")
             self.scene().removeItem(self)
             # Mark as ejected so we don't show a warning later
-            print("Length of ejected drives:", len(ejected_drives))
-            print("Adding ejected drive:", normalized_drive)
             ejected_drives.add(normalized_drive)
-            # Print length of the set of ejected drives
-            print("Ejected drives:", len(ejected_drives))
         else:
             QtWidgets.QMessageBox.critical(None, "Error", f"Failed to eject {normalized_drive}")
-
 
 
 # ---------------- Spatial Filer Window (main file/folder view) ----------------
 class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     selectionChanged = QtCore.pyqtSignal()
-
-    # Global registry of open windows by folder path.
-    open_windows = {}
 
     def __init__(self, folder_path: str, layout_data: dict = None):
         super().__init__()
@@ -652,7 +644,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         self.update_status_bar()
 
         # Register this window (keyed by folder path).
-        SpatialFilerWindow.open_windows[self.folder_path] = self
+        open_windows[self.folder_path] = self
 
         self.watcher = QtCore.QFileSystemWatcher(self)
         self.watcher.addPath(self.folder_path)
@@ -679,8 +671,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             self.closeEvent = lambda event: None
 
     def close(self):
-        if self.folder_path in SpatialFilerWindow.open_windows:
-            del SpatialFilerWindow.open_windows[self.folder_path]
+        if self.folder_path in open_windows:
+            del open_windows[self.folder_path]
         self.save_layout()
         super().close()
 
@@ -696,7 +688,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def paste_action_update(self):
         """Tell all open windows to update their Edit menu based on the clipboard contents."""
         # FIXME: There is probably a more elegant way to do this.
-        for window in SpatialFilerWindow.open_windows.values():
+        for window in open_windows.values():
             window.update_edit_menu()
 
     def update_edit_menu(self):
@@ -1289,14 +1281,14 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         self.save_layout()
-        if self.folder_path in SpatialFilerWindow.open_windows:
-            del SpatialFilerWindow.open_windows[self.folder_path]
+        if self.folder_path in open_windows:
+            del open_windows[self.folder_path]
         super().closeEvent(event)
 
     @staticmethod # This means the method can be called on the class itself, without an instance.
     def get_or_create_window(folder_path, spring_loaded: bool = False):
-        if folder_path in SpatialFilerWindow.open_windows:
-            window = SpatialFilerWindow.open_windows[folder_path]
+        if folder_path in open_windows:
+            window = open_windows[folder_path]
             if window.isMinimized():
                 window.showNormal()
             window.raise_()
@@ -1329,30 +1321,31 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 def handle_drive_removal(drive):
         normalized_drive = os.path.normpath(drive)
 
+        # Close any open windows associated with the removed drive
+        removed_volume_name = QtCore.QStorageInfo(normalized_drive).displayName()
+        window_to_close = None
+        for window in open_windows.values():
+            path = window.folder_path
+            print("A window is open with title:", window.windowTitle(), "at path:", path)
+            if os.path.normpath(path) == normalized_drive or window.volume_name == removed_volume_name:
+                window_to_close = window # Do not close here to avoid modifying the dictionary while iterating
+                print(f"Closing window for {normalized_drive} at {path}")
+        if window_to_close:
+            window_to_close.close()
+
+        desktop_window.refresh_view()
+
         # If the drive was ejected by the application, do not show the warning
         if normalized_drive in ejected_drives:
             ejected_drives.discard(normalized_drive)
             return
-
-        # Show error message only if it was NOT ejected by the app
-        QtWidgets.QMessageBox.critical(
-            None, "Warning",
-            f"Volume {normalized_drive} was removed without being ejected first.\n\n"
-            "To prevent data loss, always eject volumes before removal."
-        )
-
-        # Close any open windows associated with the removed drive
-        removed_volume_name = QtCore.QStorageInfo(normalized_drive).displayName()
-        matching_keys = [
-            path for path, window in SpatialFilerWindow.open_windows.items()
-            if os.path.normpath(path) == normalized_drive or window.volume_name == removed_volume_name
-        ]
-
-        for key in matching_keys:
-            SpatialFilerWindow.open_windows[key].close()
-
-        desktop_window.refresh_view()
-
+        else:
+            # Show error message only if it was NOT ejected by the app
+            QtWidgets.QMessageBox.critical(
+                None, "Warning",
+                f"Volume {normalized_drive} was removed without being ejected first.\n\n"
+                "To prevent data loss, always eject volumes before removal."
+            )
 
 if __name__ == "__main__":
     # Ctrl-C quits
@@ -1361,6 +1354,9 @@ if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
 
     app.setWindowIcon(QtGui.QIcon.fromTheme("folder"))
+
+    # Global registry of open windows by folder path.
+    open_windows = {}
 
     try:
         import styling
@@ -1396,7 +1392,6 @@ if __name__ == "__main__":
     ejected_drives = set()  # Keep track of drives that the user has ejected using the application
     drive_watcher = DriveWatcher()
     drive_watcher.start()
-    # self.drive_watcher.newDriveDetected.connect(lambda drive: SpatialFilerWindow.get_or_create_window(drive))
     drive_watcher.newDriveDetected.connect(lambda drive: desktop_window.refresh_view())
     drive_watcher.driveRemoved.connect(lambda drive: handle_drive_removal(drive))
     drive_watcher.start()
