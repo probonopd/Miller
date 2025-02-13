@@ -52,9 +52,6 @@ def apply_styling(app):
     if "bold_italic" in fonts:
         bold_italic_font = QtGui.QFont(fonts["bold_italic"], 9, QtGui.QFont.Weight.Bold, True)
 
-    # Disallow icons in buttons and menus
-    app.setAttribute(QtCore.Qt.ApplicationAttribute.AA_DontShowIconsInMenus)
-
     # Set highlight color for selected items to blue
     palette = app.palette()
     palette.setColor(QtGui.QPalette.ColorRole.Highlight, QtGui.QColor(64, 64, 255))

@@ -5,6 +5,10 @@ import os, sys, shlex, subprocess
 from PyQt6 import QtWidgets, QtGui, QtCore
 from pylnk3 import Lnk
 
+from styling import setup_icon_theme
+setup_icon_theme()
+icon_provider = QtWidgets.QFileIconProvider()
+
 def resolve_shortcut(lnk_path):
     try:
         lnk = Lnk(lnk_path)
@@ -25,7 +29,6 @@ def load_icon(path, fallback_path=None):
     if fallback_path:
         expanded_fallback = os.path.expandvars(fallback_path)
         if os.path.exists(expanded_fallback):
-            icon_provider = QtWidgets.QFileIconProvider()
             return icon_provider.icon(QtCore.QFileInfo(expanded_fallback))
     return QtGui.QIcon.fromTheme("application-x-executable")
 

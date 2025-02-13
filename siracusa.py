@@ -270,7 +270,10 @@ class FileItem(QtWidgets.QGraphicsObject):
         self.is_folder = os.path.isdir(file_path)
 
         file_info = QtCore.QFileInfo(file_path)
-        self.icon = icon_provider.icon(file_info)
+        if self.is_folder:
+            self.icon = QtGui.QIcon.fromTheme("folder")
+        else:
+            self.icon = icon_provider.icon(file_info)
         icon_size = QtCore.QSize(32, 32)
         self.pixmap = self.icon.pixmap(icon_size)
         if self.pixmap.width() < icon_size.width() or self.pixmap.height() < icon_size.height():
@@ -1380,7 +1383,7 @@ if __name__ == "__main__":
 
     app = QtWidgets.QApplication(sys.argv)
 
-    app.setWindowIcon(app.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_DirIcon))
+    app.setWindowIcon(QtGui.QIcon.fromTheme("folder"))
 
     # Output not only to the console but also to the GUI
     try:
