@@ -105,6 +105,7 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
                            QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Right):
             print(f"Forwarding arrow key: {event.key()}")  # Debugging
             self.parent().keyPressEvent(event)  # Send to the main window
+            event.accept() # Stop futher propagation to prevent it being called twice
         else:
             super().keyPressEvent(event)  # Process normally
 
@@ -340,7 +341,7 @@ class FileItem(QtWidgets.QGraphicsObject):
         painter.drawRect(QtCore.QRectF(text_x - space_before_and_after/2, text_y - text_height, text_width + space_before_and_after, text_height))
         
         # Draw the file/folder name
-        if os.path.islink(self.file_path) or (sys.platform == "win32" and os.path.splitext(self.file_path)[1].lower() == ".lnk"):
+        if os.path.islink(self.file_path) or (sys.platform == "win32" and os.path.splitext(self.file_path)[1].lower() == (".lnk" or ".url")):
             self.font.setItalic(True)
         painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0)))
         painter.setFont(self.font)
@@ -497,7 +498,7 @@ class FileItem(QtWidgets.QGraphicsObject):
         """Opens a folder or launches a file."""
         # Special case: On Windows, .lnk files are shortcuts to files or folders.
         target_path = self.file_path
-        if sys.platform == "win32" and self.file_path.lower().endswith(".lnk"):
+        if sys.platform == "win32" and self.file_path.lower().endswith(".lnk" or ".url"):
             target_path = self.resolve_lnk(self.file_path)
 
         self.animate_opening()
@@ -647,6 +648,27 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         # Ensure the window gets typed text events even if an item is selected.
         self.setFocusPolicy(QtCore.Qt.FocusPolicy.StrongFocus)
 
+        if self.is_desktop_window:
+            # Disable the ability to close the desktop window
+            self.setWindowFlag(QtCore.Qt.WindowType.WindowCloseButtonHint, False)
+            self.closeEvent = lambda event: None
+            self.close = lambda: None
+
+    def close(self):
+        if self.folder_path in SpatialFilerWindow.open_windows:
+            del SpatialFilerWindow.open_windows[self.folder_path]
+        self.save_layout()
+        super().close()
+
+    def open_selected_items(self):
+        """Call open_item on the selected items"""
+        modifiers = QtWidgets.QApplication.keyboardModifiers()
+        if modifiers & QtCore.Qt.KeyboardModifier.ShiftModifier:
+            self.close()
+        for item in self.file_items:
+            if item.isSelected():
+                item.open_item()
+
     def paste_action_update(self):
         """Tell all open windows to update their Edit menu based on the clipboard contents."""
         # FIXME: There is probably a more elegant way to do this.
@@ -671,20 +693,94 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         super().resizeEvent(event)
         self.update_scene_rect()
 
-    def go_home(self):
-        """Open the user's home directory."""
-        home_dir = os.path.expanduser("~")
-        SpatialFilerWindow.get_or_create_window(home_dir)
+    def go_up(self):
+        if self.folder_path:
+            parent_dir = os.path.dirname(self.folder_path)
+            if os.path.exists(parent_dir):
+                self.get_or_create_window(parent_dir)
 
-    def go_trash(self):
+    def go_up_and_close(self):
+        if self.folder_path:
+            parent_dir = os.path.dirname(self.folder_path)
+            if os.path.exists(parent_dir):
+                self.get_or_create_window(parent_dir)
+                self.close()
+
+    def open_computer(self):
+        path = "C:\\" if sys.platform == "win32" else "/"
+        self.get_or_create_window(path)
+
+    def open_network(self):
+        if sys.platform == "win32":
+            path = os.path.join(os.getenv("APPDATA"), "Microsoft", "Windows", "Network Shortcuts")
+        else:
+            QMessageBox.information(self, "Network", "TODO: Implement network browsing")
+            return
+        self.get_or_create_window(path)
+
+    def open_devices(self):
+        if sys.platform == "win32":
+            path = "This PC"
+        else:
+            path = "/media" if os.path.exists("/media") else "/mnt"
+        self.get_or_create_window(path)
+
+    def open_applications(self):
+        if sys.platform == "win32":
+            path = os.path.join(os.getenv("ProgramFiles", "C:\\Program Files"))
+        else:
+            path = "/usr/share/applications" if os.path.exists("/usr/share/applications") else os.path.expanduser("~/Applications")
+        self.get_or_create_window(path)
+
+    def open_home(self):
+        path = os.path.expanduser("~")
+        self.get_or_create_window(path)
+
+    def open_documents(self):
+        if sys.platform == "win32":
+            path = os.path.join(os.path.expanduser("~"), "Documents")
+        else:
+            path = os.path.join(os.path.expanduser("~"), "Documents")
+        self.get_or_create_window(path)
+
+    def open_downloads(self):
+        if sys.platform == "win32":
+            path = os.path.join(os.path.expanduser("~"), "Downloads")
+        else:
+            path = os.path.join(os.path.expanduser("~"), "Downloads")
+        self.get_or_create_window(path)
+
+    def open_music(self):
+        if sys.platform == "win32":
+            path = os.path.join(os.path.expanduser("~"), "Music")
+        else:
+            path = os.path.join(os.path.expanduser("~"), "Music")
+        self.get_or_create_window(path)
+
+    def open_pictures(self):
+        if sys.platform == "win32":
+            path = os.path.join(os.path.expanduser("~"), "Pictures")
+        else:
+            path = os.path.join(os.path.expanduser("~"), "Pictures")
+        self.get_or_create_window(path)
+
+    def open_videos(self):
+        if sys.platform == "win32":
+            path = os.path.join(os.path.expanduser("~"), "Videos")
+        else:
+            path = os.path.join(os.path.expanduser("~"), "Videos")
+        self.get_or_create_window(path)
+
+    def open_trash(self):
         """Open the Trash directory."""
         if sys.platform == "win32":
-            trash_dir = os.path.join(os.getenv('USERPROFILE'), 'Recycle Bin')
+            # C:\$Recycle.Bin\
+            trash_dir =  'C:\\$Recycle.Bin\\'
         else:
             trash_dir = os.path.expanduser("~/.local/share/Trash/files")
         SpatialFilerWindow.get_or_create_window(trash_dir)
 
-    def go_drive(self, drive):
+    def open_drive(self, drive):
         """Open a specific drive (Windows only)."""
         SpatialFilerWindow.get_or_create_window(drive.replace("\\", "/"))
 
@@ -704,7 +800,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def empty_trash(self):
         """Delete all files in the Trash folder."""
         if sys.platform == "win32":
-            trash_dir = os.path.join(os.getenv('USERPROFILE'), 'Recycle Bin')
+            QtWidgets.QMessageBox.information(self, "Empty Trash", "Not implemented yet.")
         else:
             trash_dir = os.path.expanduser("~/.local/share/Trash/files")
         try:
@@ -893,7 +989,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def keyPressEvent(self, event):
         key = event.key()
-        if key in (QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Right):
+        if (key in (QtCore.Qt.Key.Key_Up, QtCore.Qt.Key.Key_Down, QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Right) and event.type() == QtCore.QEvent.Type.KeyPress) and not (key in (QtCore.Qt.Key.Key_Control, QtCore.Qt.Key.Key_Shift, QtCore.Qt.Key.Key_Alt)):
             self.navigate_selection(key)
         elif key == QtCore.Qt.Key.Key_F5:
             self.refresh_view()
@@ -929,8 +1025,11 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def navigate_selection(self, key):
         """
         Select the closest neighbor by Euclidean distance.
-        FIXME: This skips the nearest neighbor and selects the next closest one after it. We want the nearest neighbor.
         """
+
+        # TODO: Handle Shift-Arrow for multi-selection more like Finder/Explorer using a mental/virtual selection rectangle.
+
+        print("Navigating selection")
         if not self.file_items:
             return
 
@@ -990,7 +1089,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                 best_item = item
 
         if best_item:
-            self.scene.clearSelection()
+            if not QtWidgets.QApplication.keyboardModifiers() & QtCore.Qt.KeyboardModifier.ShiftModifier:
+                self.scene.clearSelection()
             best_item.setSelected(True)
             self.view.centerOn(best_item)
 
@@ -1013,23 +1113,17 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def sort_items(self, criterion):
         """Sort items and layout them correctly based on the window type."""
-        
-        def get_key(item):
-            try:
-                if criterion == "name":
-                    return os.path.basename(item.file_path).lower()
-                elif criterion == "date":
-                    return os.path.getmtime(item.file_path)
-                elif criterion == "size":
-                    return os.path.getsize(item.file_path)
-                elif criterion == "type":
-                    return os.path.splitext(item.file_path)[1].lower()
-            except Exception:
-                return 0
 
-        # Sort items based on the selected criterion
-        sorted_items = sorted(self.file_items, key=get_key)
-
+        # Sort items based on the selected criterion, ignoring upper/lowercase
+        if criterion == "name":
+            sorted_items = sorted(self.file_items, key=lambda x: os.path.basename(x.file_path).lower())
+        elif criterion == "date":
+            sorted_items = sorted(self.file_items, key=lambda x: os.path.getmtime(x.file_path))
+        elif criterion == "size":
+            sorted_items = sorted(self.file_items, key=lambda x: os.path.getsize(x.file_path))
+        elif criterion == "type":
+            sorted_items = sorted(self.file_items, key=lambda x: os.path.splitext(x.file_path)[1].lower())
+            
         occupied_positions = set()
 
         if self.is_desktop_window:
@@ -1275,10 +1369,6 @@ class MainObject:
         for key in matching_keys:
             print(f"Closing window for {SpatialFilerWindow.open_windows[key].volume_name} (was at {key})")
             SpatialFilerWindow.open_windows[key].close()
-            try:
-                del SpatialFilerWindow.open_windows[key]
-            except KeyError:
-                print(f"Warning: Window entry for {key} was already removed.")
 
         # Refresh desktop to remove the drive icon
         self.desktop_window.refresh_view()

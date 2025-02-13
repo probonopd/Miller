@@ -454,7 +454,7 @@ class MillerColumns(QMainWindow):
             trash_dir = QDir.homePath() + '/.local/share/Trash/files/'
         self._update_view(self.file_model.index(trash_dir))
 
-    def go_drive(self, drive):
+    def open_drive(self, drive):
         """
         Go to the specified drive.
         """

@@ -12,6 +12,7 @@ from PyQt6 import QtGui, QtCore, QtWidgets
 
 if sys.platform == "win32":
     import win32gui, win32con # For managing windows
+    import window_start_menu
 
 def create_menus(window):
     """
@@ -30,8 +31,22 @@ def create_menus(window):
     # === LEFT-SIDE MENU BAR ===
     left_menubar = QtWidgets.QMenuBar()
 
+    # Start Menu
+    if sys.platform == "win32":
+        start_menu = window_start_menu.StartMenu(window)
+        left_menubar.addMenu(start_menu)
+
     # File Menu
     file_menu = left_menubar.addMenu("File")
+
+    open_action = QtGui.QAction("Open", window)
+    open_action.setShortcut("Ctrl+O")
+    open_action.setShortcuts([open_action.shortcut(), "Ctrl+Down", "Ctrl+Shift+Down", "Return", "Enter"])
+
+    file_menu.addAction(open_action)
+    open_action.triggered.connect(window.open_selected_items)
+
+    file_menu.addSeparator()
 
     new_folder_action = QtGui.QAction("New Folder", window)
     new_folder_action.setShortcut("Ctrl+Shift+N")
@@ -39,7 +54,7 @@ def create_menus(window):
     file_menu.addAction(new_folder_action)
     file_menu.addSeparator()
 
-    get_info_action = QtGui.QAction("Get Info...", window)
+    get_info_action = QtGui.QAction("Get Info", window)
     get_info_action.setShortcut("Ctrl+I")
     get_info_action.triggered.connect(window.get_info)
     file_menu.addAction(get_info_action)
@@ -116,13 +131,17 @@ def create_menus(window):
         select_all_action.triggered.connect(window.select_all)
         empty_trash_action.triggered.connect(window.empty_trash)
         move_to_trash_action.triggered.connect(window.move_to_trash)
-        
+
+        window.selectionChanged.connect(lambda: open_action.setEnabled(window.has_selected_items()))
+        window.selectionChanged.connect(lambda: get_info_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: cut_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: copy_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: delete_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: empty_trash_action.setEnabled(window.has_trash_items()))
         window.selectionChanged.connect(lambda: move_to_trash_action.setEnabled(window.has_selected_items()))
         
+        open_action.setEnabled(False)
+        get_info_action.setEnabled(False)
         cut_action.setEnabled(False)
         copy_action.setEnabled(False)
         window.paste_action.setEnabled(False)
@@ -138,15 +157,83 @@ def create_menus(window):
         run_action.setShortcut("Meta+R")
         window.go_menu.addSeparator()
 
+    go_up_action = QtGui.QAction("Go Up", window)
+    go_up_action.setShortcut("Ctrl+Up")
+    window.go_menu.addAction(go_up_action)
+
+    go_up_close_action = QtGui.QAction("Go Up and Close Current", window)
+    go_up_close_action.setShortcut("Ctrl+Shift+Up")
+    window.go_menu.addAction(go_up_close_action)
+
+    window.go_menu.addSeparator()
+
+    computer_action = QtGui.QAction("Computer", window)
+    if not sys.platform == "win32":
+        computer_action.setShortcut("Ctrl+Shift+C")
+        window.go_menu.addAction(computer_action)
+
+    network_action = QtGui.QAction("Network", window)
+    network_action.setShortcut("Ctrl+Shift+N")
+    window.go_menu.addAction(network_action)
+
+    devices_action = QtGui.QAction("Devices", window)
+    if not sys.platform == "win32":
+        devices_action.setShortcut("Ctrl+U")
+        window.go_menu.addAction(devices_action)
+
+    applications_action = QtGui.QAction("Applications", window)
+    applications_action.setShortcut("Ctrl+Shift+A")
+    window.go_menu.addAction(applications_action)
+
+    window.go_menu.addSeparator()
+
     home_action = QtGui.QAction("Home", window)
     home_action.setShortcut("Ctrl+Shift+H")
-    home_action.triggered.connect(window.go_home)
-    trash_action = QtGui.QAction("Trash", window)
-    trash_action.triggered.connect(window.go_trash)
-    trash_action.setShortcut("Ctrl+Shift+T")
     window.go_menu.addAction(home_action)
-    window.go_menu.addAction(trash_action)
+
+    documents_action = QtGui.QAction("Documents", window)
+    documents_action.setShortcut("Ctrl+Shift+D")
+    window.go_menu.addAction(documents_action)
+
+    downloads_action = QtGui.QAction("Downloads", window)
+    downloads_action.setShortcut("Ctrl+Shift+L")
+    window.go_menu.addAction(downloads_action)
+
+    music_action = QtGui.QAction("Music", window)
+    music_action.setShortcut("Ctrl+Shift+M")
+    window.go_menu.addAction(music_action)
+
+    pictures_action = QtGui.QAction("Pictures", window)
+    pictures_action.setShortcut("Ctrl+Shift+P")
+    window.go_menu.addAction(pictures_action)
+
+    videos_action = QtGui.QAction("Videos", window)
+    videos_action.setShortcut("Ctrl+Shift+V")
+    window.go_menu.addAction(videos_action)
+
     window.go_menu.addSeparator()
+
+    trash_action = QtGui.QAction("Trash", window)
+    trash_action.setShortcut("Ctrl+Shift+T")
+    window.go_menu.addAction(trash_action)
+
+    window.go_menu.addSeparator()
+
+    if isinstance(window, QtWidgets.QMainWindow):
+        go_up_action.triggered.connect(window.go_up)
+        go_up_close_action.triggered.connect(window.go_up_and_close)
+        if not sys.platform == "win32":
+            computer_action.triggered.connect(window.open_computer)
+        network_action.triggered.connect(window.open_network)
+        devices_action.triggered.connect(window.open_devices)
+        applications_action.triggered.connect(window.open_applications)
+        home_action.triggered.connect(window.open_home)
+        documents_action.triggered.connect(window.open_documents)
+        downloads_action.triggered.connect(window.open_downloads)
+        music_action.triggered.connect(window.open_music)
+        pictures_action.triggered.connect(window.open_pictures)
+        videos_action.triggered.connect(window.open_videos)
+        trash_action.triggered.connect(window.open_trash)
 
     window.go_menu.aboutToShow.connect(lambda: populate_volumes(window))
 
@@ -230,7 +317,7 @@ def populate_volumes(window):
     drives = QtCore.QStorageInfo.mountedVolumes()
     for drive in drives:
         drive_action = QtGui.QAction(drive.displayName(), window)
-        drive_action.triggered.connect(lambda checked, d=drive.rootPath(): window.go_drive(d))
+        drive_action.triggered.connect(lambda checked, d=drive.rootPath(): window.open_drive(d))
         drive_action.is_volume = True
         window.go_menu.addAction(drive_action)
 
