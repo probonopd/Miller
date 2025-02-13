@@ -16,14 +16,14 @@ class HotKeyManager:
 
         # Define hotkeys and their modifiers
         self.hotkeys = {
-            'alt_f4': (win32con.VK_F4, win32con.MOD_ALT),
-            'win_r' : (self.VK_R, win32con.MOD_WIN)
+            'Alt+F4': (win32con.VK_F4, win32con.MOD_ALT),
+            'Meta+R' : (self.VK_R, win32con.MOD_WIN)
         }
 
         # Map each hotkey to its handler function
         self.actions = {
-            'alt_f4': self.handle_alt_f4,
-            'win_r' : self.handle_win_r
+            'Alt+F4': self.handle_alt_f4,
+            'Meta+R' : self.handle_win_r
         }
 
         # We'll store mappings of hotkey id to key name to ease reverse lookup
@@ -41,7 +41,7 @@ class HotKeyManager:
         self.user32.PostMessageA(hwnd, win32con.WM_CLOSE, 0, 0)
 
     def handle_win_r(self):
-        print("Win+R pressed")
+        print("Meta+R pressed")
         Dispatch("WScript.Shell").Run("rundll32.exe shell32.dll,#61")
 
     def register_hotkeys(self):
@@ -50,9 +50,10 @@ class HotKeyManager:
         for id, key in enumerate(self.hotkeys, start=1):
             vk, mod = self.hotkeys[key]
             self.id_to_key[id] = key  # map id to key name
-            print(f"Registering {key}: id {id}, vk {vk}, mod {mod}")
             if not self.user32.RegisterHotKey(None, id, mod, vk):
                 print(f"Unable to register hotkey for {key}")
+            else:
+                print(f"Registered hotkey for {key}")
 
     def unregister_hotkeys(self):
         print("Unregistering hotkeys...")

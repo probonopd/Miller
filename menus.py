@@ -153,6 +153,7 @@ def create_menus(window):
     if sys.platform == "win32":
         run_action = QtGui.QAction("Run...", window)
         window.go_menu.addAction(run_action)
+        run_action.triggered.connect(run_dialog)
         run_action.setShortcut("Meta+R")
         window.go_menu.addSeparator()
 
@@ -329,6 +330,15 @@ def show_current_time(window):
     current_time = QtCore.QTime.currentTime().toString()
     QtWidgets.QMessageBox.information(window, "Current Time", f"The current time is: {current_time}")
 
+def run_dialog():
+    """
+    Open the Windows Run dialog.
+    """
+    if sys.platform != "win32":
+        return
+    from win32com.client import Dispatch
+    shell = Dispatch("WScript.Shell")
+    shell.Run("rundll32.exe shell32.dll,#61")
 
 def logout():
     message_box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Icon.Question, "Log Out", "Are you sure you want to log out?\nUnsaved work will be lost.", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)

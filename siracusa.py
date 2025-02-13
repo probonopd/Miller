@@ -1394,6 +1394,18 @@ if __name__ == "__main__":
 
     app.setWindowIcon(QtGui.QIcon.fromTheme("folder"))
 
+    try:
+        import styling
+    except ImportError:
+        pass
+    if "styling" in sys.modules:
+        styling.apply_styling(app)
+
+    # Reserving space for the menu bar on Windows
+    if sys.platform == "win32":
+        appbar = windows_struts.Strut()
+        app.aboutToQuit.connect(appbar.restore_work_area)
+
     # Output not only to the console but also to the GUI
     try:
         import log_console
@@ -1404,22 +1416,10 @@ if __name__ == "__main__":
         sys.stdout = log_console.Tee(sys.stdout, app.log_console)
         sys.stderr = log_console.Tee(sys.stderr, app.log_console)
 
-    try:
-        import styling
-    except ImportError:
-        pass
-    if "styling" in sys.modules:
-        styling.apply_styling(app)
-
     m = MainObject()
 
     # Check for the presence of WAYLAND_DISPLAY and show info box for Wayland users
     if "WAYLAND_DISPLAY" in os.environ:
         QtWidgets.QMessageBox.information(m.desktop_window, "Wayland", "Spatial Filer does not work properly on Wayland yet.\nWindows are all over the place.\nMenu mouse releasing doesn't work properly.")
-
-    # Reserving space for the menu bar on Windows
-    if sys.platform == "win32":
-        appbar = windows_struts.Strut()
-        app.aboutToQuit.connect(appbar.restore_work_area)
 
     sys.exit(app.exec())
