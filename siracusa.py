@@ -27,11 +27,9 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
+* Error box saying you should not remove the drive without ejecting it first should only be shown if the cause for the removal was not that the drive was ejected by the application.
 * Get rid of open_windows completely. Instead, whenever a window is created, set an attribute with the normalized path on it. Then, whenever a window shall be opened, check if a window with that attribute already exists. This way, we can get rid of the open_windows dictionary which is not robust and may get out of sync.
 * Look into https://github.com/flacjacket/pywayland/
-* How can we reliably do self.shutdown() when Alt-F4 is pressed on Windows? We need to catch the close event and call shutdown() there? Or is there a better way?
-* Use a separate file windows_eject.py to handle ejecting volumes on windows.
-* Can we register Meta-R as a global hotkey in Windows so that it also works when the app is not in focus?  
 
 FOR TESTING:
 * Windows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
@@ -45,6 +43,7 @@ if sys.platform == "win32":
     from win32com.client import Dispatch
     import windows_struts
     import windows_hotkeys
+    import windows_eject
 
 import getinfo, menus, fileops
 
@@ -71,8 +70,8 @@ class DriveWatcher(QtCore.QThread):
             for drive in new_drives:
                 self.newDriveDetected.emit(drive)
 
-            drive_removed = seen_drives - current_drives
-            for drive in drive_removed:
+            drives_removed = seen_drives - current_drives
+            for drive in drives_removed:
                 self.driveRemoved.emit(drive)
 
             seen_drives = current_drives
@@ -568,11 +567,33 @@ class FileItem(QtWidgets.QGraphicsObject):
 
     def eject_volume(self):
         if not self.volume_name:
-            # It is not a volume
             return
-        print("TODO: Ejecting volume:", self.volume_name, "with file_path:", self.file_path)
-        parent = self.scene().views()[0] if self.scene().views() else None
-        QtWidgets.QMessageBox.information(parent, "Eject " + self.file_path, "Not implemented yet for this platform.")
+        
+        # Ensure the drive path is valid
+        if not isinstance(self.file_path, str) or not self.file_path:
+            print(f"Invalid drive path: {self.file_path}")
+            return
+
+        normalized_drive = os.path.normpath(self.file_path) 
+
+        if sys.platform == "win32":
+            success = windows_eject.WindowsEjector().eject_drive(normalized_drive[0])  # Use only the drive letter
+        else:
+            success = os.system(f"umount {normalized_drive}") == 0
+            
+        if success:
+            print(f"Successfully ejected {normalized_drive}")
+            self.scene().removeItem(self)
+            # Mark as ejected so we don't show a warning later
+            print("Length of ejected drives:", len(ejected_drives))
+            print("Adding ejected drive:", normalized_drive)
+            ejected_drives.add(normalized_drive)
+            # Print length of the set of ejected drives
+            print("Ejected drives:", len(ejected_drives))
+        else:
+            QtWidgets.QMessageBox.critical(None, "Error", f"Failed to eject {normalized_drive}")
+
+
 
 # ---------------- Spatial Filer Window (main file/folder view) ----------------
 class SpatialFilerWindow(QtWidgets.QMainWindow):
@@ -835,7 +856,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                 # The name of the disk is the first part of the path, e.g. "C:" or "D:"
                 print(disk.canonicalFilePath())
                 disk_name = disk.canonicalFilePath()
-                folder_files.append(disk_name)
+                if disk_name not in folder_files:
+                    folder_files.append(disk_name)
 
         # Load stored positions from layout file if available
         layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
@@ -1304,86 +1326,32 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def selectedItems(self):
         return self.scene.selectedItems()
 
-
-# ---------------- Main Application Object ----------------
-class MainObject:
-    def __init__(self):
-        desktop = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.StandardLocation.DesktopLocation)
-        # If the desktop directory does not exist, create it.
-        if not os.path.exists(desktop):
-            os.makedirs(desktop)
-        screen = QtWidgets.QApplication.primaryScreen()
-        desktop_window = SpatialFilerWindow.get_or_create_window(desktop)
-        desktop_window.setWindowFlags(QtCore.Qt.WindowType.FramelessWindowHint)
-        desktop_window.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnBottomHint)
-        self.drive_watcher = DriveWatcher()
-        # self.drive_watcher.newDriveDetected.connect(lambda drive: SpatialFilerWindow.get_or_create_window(drive))
-        self.drive_watcher.newDriveDetected.connect(lambda drive: desktop_window.refresh_view())
-        self.drive_watcher.driveRemoved.connect(lambda drive: self.handle_drive_removal(drive))
-        self.drive_watcher.start()
-        desktop_window.move(screen.geometry().x(), screen.geometry().y())
-        desktop_window.resize(screen.geometry().width(), screen.geometry().height())
-        desktop_window.statusBar().hide()
-        # Set the background color of the desktop window to gray
-        desktop_window.view.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(128, 128, 128)))
-        # If we are running on X11, set the desktop window to be the root window
-        if "DISPLAY" in os.environ:
-            # Set a hint that this is the desktop window
-            desktop_window.view.viewport().setWindowFlags(QtCore.Qt.WindowType.X11BypassWindowManagerHint)
-            desktop_window.view.viewport().setProperty("_q_desktop", True)
-
-        # If we are runnnig on Wayland, set the desktop window to be the root window
-        if "WAYLAND_DISPLAY" in os.environ:
-            print("FIXME: Wayland: How to set the desktop window to be the root window on Wayland?")
-            # https://drewdevault.com/2018/07/29/Wayland-shells.html
-            # Since wl_shell is not ready yet, we need to use xdg_shell?
-            # https://pywayland.readthedocs.io/en/latest/module/protocol/xdg_shell.html
-            # Look into https://github.com/flacjacket/pywayland/
-
-            # TODO: Investigate whether we could use https://pywayland.readthedocs.io/en/latest/module/protocol/xdg_shell.html#pywayland.protocol.xdg_shell.XdgToplevel.move
-            # to simulate the broken Qt .move() of windows when running under Wayland.
-
-
-        # On Windows, get the wallpaper and set it as the background of the window
-        if sys.platform == "win32":
-            shell = Dispatch("WScript.Shell")
-            windows_wallpaper_path = os.path.normpath(shell.RegRead("HKEY_CURRENT_USER\\Control Panel\\Desktop\\Wallpaper")).replace("\\", "/")
-            if windows_wallpaper_path != "." and os.path.exists(windows_wallpaper_path):
-                desktop_window.view.setBackgroundBrush(QtGui.QBrush(QtGui.QPixmap(windows_wallpaper_path).scaled(desktop_window.width(),
-                                                                                                                 desktop_window.height(),
-                                                                                                                 QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                                                                                                                 QtCore.Qt.TransformationMode.SmoothTransformation)))
-            
-        desktop_window.show()
-
-        self.desktop_window = desktop_window
-
-        # Register global hotkeys
-        if sys.platform == "win32":
-            self.hotkey_manager =  windows_hotkeys.HotKeyManager(desktop_window).run()
-            # When the application gets killed or otherwise exits, unregister the hotkeys
-            app.aboutToQuit.connect(self.hotkey_manager.unregister_hotkeys)
-
-        # Ctrl+Shift+F4 quits the application
-        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Shift+F4"), desktop_window, QtWidgets.QApplication.quit)
-
-    def handle_drive_removal(self, drive):
-        print(f"Drive {drive} removed")
-
-        # Normalize drive path (e.g., 'D:/' → 'D:\\' for Windows)
+def handle_drive_removal(drive):
         normalized_drive = os.path.normpath(drive)
 
-        # Get volume name of removed drive
-        removed_volume_name = QtCore.QStorageInfo(drive).displayName()
-        matching_keys = [path for path, window in SpatialFilerWindow.open_windows.items()
-                        if os.path.normpath(path) == normalized_drive or window.volume_name == removed_volume_name]
+        # If the drive was ejected by the application, do not show the warning
+        if normalized_drive in ejected_drives:
+            ejected_drives.discard(normalized_drive)
+            return
+
+        # Show error message only if it was NOT ejected by the app
+        QtWidgets.QMessageBox.critical(
+            None, "Warning",
+            f"Volume {normalized_drive} was removed without being ejected first.\n\n"
+            "To prevent data loss, always eject volumes before removal."
+        )
+
+        # Close any open windows associated with the removed drive
+        removed_volume_name = QtCore.QStorageInfo(normalized_drive).displayName()
+        matching_keys = [
+            path for path, window in SpatialFilerWindow.open_windows.items()
+            if os.path.normpath(path) == normalized_drive or window.volume_name == removed_volume_name
+        ]
 
         for key in matching_keys:
-            print(f"Closing window for {SpatialFilerWindow.open_windows[key].volume_name} (was at {key})")
             SpatialFilerWindow.open_windows[key].close()
 
-        # Refresh desktop to remove the drive icon
-        self.desktop_window.refresh_view()
+        desktop_window.refresh_view()
 
 
 if __name__ == "__main__":
@@ -1416,7 +1384,65 @@ if __name__ == "__main__":
         sys.stdout = log_console.Tee(sys.stdout, app.log_console)
         sys.stderr = log_console.Tee(sys.stderr, app.log_console)
 
-    m = MainObject()
+
+    desktop = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.StandardLocation.DesktopLocation)
+    # If the desktop directory does not exist, create it.
+    if not os.path.exists(desktop):
+        os.makedirs(desktop)
+    screen = QtWidgets.QApplication.primaryScreen()
+    desktop_window = SpatialFilerWindow.get_or_create_window(desktop)
+    desktop_window.setWindowFlags(QtCore.Qt.WindowType.FramelessWindowHint)
+    desktop_window.setWindowFlag(QtCore.Qt.WindowType.WindowStaysOnBottomHint)
+    ejected_drives = set()  # Keep track of drives that the user has ejected using the application
+    drive_watcher = DriveWatcher()
+    drive_watcher.start()
+    # self.drive_watcher.newDriveDetected.connect(lambda drive: SpatialFilerWindow.get_or_create_window(drive))
+    drive_watcher.newDriveDetected.connect(lambda drive: desktop_window.refresh_view())
+    drive_watcher.driveRemoved.connect(lambda drive: handle_drive_removal(drive))
+    drive_watcher.start()
+    desktop_window.move(screen.geometry().x(), screen.geometry().y())
+    desktop_window.resize(screen.geometry().width(), screen.geometry().height())
+    desktop_window.statusBar().hide()
+    # Set the background color of the desktop window to gray
+    desktop_window.view.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(128, 128, 128)))
+    # If we are running on X11, set the desktop window to be the root window
+    if "DISPLAY" in os.environ:
+        # Set a hint that this is the desktop window
+        desktop_window.view.viewport().setWindowFlags(QtCore.Qt.WindowType.X11BypassWindowManagerHint)
+        desktop_window.view.viewport().setProperty("_q_desktop", True)
+
+    # If we are runnnig on Wayland, set the desktop window to be the root window
+    if "WAYLAND_DISPLAY" in os.environ:
+        print("FIXME: Wayland: How to set the desktop window to be the root window on Wayland?")
+        # https://drewdevault.com/2018/07/29/Wayland-shells.html
+        # Since wl_shell is not ready yet, we need to use xdg_shell?
+        # https://pywayland.readthedocs.io/en/latest/module/protocol/xdg_shell.html
+        # Look into https://github.com/flacjacket/pywayland/
+
+        # TODO: Investigate whether we could use https://pywayland.readthedocs.io/en/latest/module/protocol/xdg_shell.html#pywayland.protocol.xdg_shell.XdgToplevel.move
+        # to simulate the broken Qt .move() of windows when running under Wayland.
+
+
+    # On Windows, get the wallpaper and set it as the background of the window
+    if sys.platform == "win32":
+        shell = Dispatch("WScript.Shell")
+        windows_wallpaper_path = os.path.normpath(shell.RegRead("HKEY_CURRENT_USER\\Control Panel\\Desktop\\Wallpaper")).replace("\\", "/")
+        if windows_wallpaper_path != "." and os.path.exists(windows_wallpaper_path):
+            desktop_window.view.setBackgroundBrush(QtGui.QBrush(QtGui.QPixmap(windows_wallpaper_path).scaled(desktop_window.width(),
+                                                                                                                desktop_window.height(),
+                                                                                                                QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                                                                                                QtCore.Qt.TransformationMode.SmoothTransformation)))
+        
+    desktop_window.show()
+
+    # Register global hotkeys
+    if sys.platform == "win32":
+        hotkey_manager =  windows_hotkeys.HotKeyManager(desktop_window).run()
+        # When the application gets killed or otherwise exits, unregister the hotkeys
+        app.aboutToQuit.connect(hotkey_manager.unregister_hotkeys)
+
+    # Ctrl+Shift+F4 quits the application
+    QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Shift+F4"), desktop_window, QtWidgets.QApplication.quit)
 
     # Check for the presence of WAYLAND_DISPLAY and show info box for Wayland users
     if "WAYLAND_DISPLAY" in os.environ:
