@@ -95,6 +95,8 @@ class MillerColumns(QMainWindow):
 
         self.setWindowIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
 
+        self.is_desktop_window = False
+
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
 
@@ -103,7 +105,7 @@ class MillerColumns(QMainWindow):
         self.column_layout = QHBoxLayout()
         self.columns = []
 
-        self.file_model = CustomFileSystemModel()
+        self.file_model = CustomFileSystemModel() # TODO: Don't use a model, just read the directories directly. This allows us to flexibly filter out certain directories such as . and ..
         self.file_model.setRootPath('')
         self.file_model.setOption(CustomFileSystemModel.Option.DontUseCustomDirectoryIcons, False)  # Enable color icons
         self.file_model.setFilter(QDir.Filter.AllEntries | QDir.Filter.Hidden | QDir.Filter.System)
@@ -230,6 +232,17 @@ class MillerColumns(QMainWindow):
             if self.file_model.isDir(parent_index):
                 self.path_label.setText(os.path.dirname(self.file_model.filePath(parent_index)))
 
+    def go(self, path):
+        """
+        Go to the specified path.
+        """
+        if not self.is_valid_path(path):
+            QMessageBox.critical(self, "Error", f"The path '{path}' does not exist or is not a directory.")
+            return
+
+        parent_index = self.file_model.index(path)
+        self._update_view(parent_index)
+
     def go_up(self):
         """
         Navigate up one directory level.
@@ -252,6 +265,46 @@ class MillerColumns(QMainWindow):
                 home_dir = os.path.expanduser('~')
                 parent_index = self.file_model.index(home_dir)
                 self._update_view(parent_index)
+
+    def open_computer(self):
+        self.go("C:\\" if sys.platform == "win32" else "/")
+
+    def open_network(self):
+        if sys.platform == "win32":
+            path = os.path.join(os.getenv("APPDATA"), "Microsoft", "Windows", "Network Shortcuts")
+            self.go(path)
+        else:
+            QMessageBox.information(self, "Network", "TODO: Implement network browsing")
+
+    def open_devices(self):
+        path = "This PC" if sys.platform == "win32" else ("/media" if os.path.exists("/media") else "/mnt")
+        self.go(path)
+
+    def open_applications(self):
+        path = os.path.join(os.getenv("ProgramFiles", "C:\\Program Files")) if sys.platform == "win32" else ("/usr/share/applications" if os.path.exists("/usr/share/applications") else os.path.expanduser("~/Applications"))
+        self.go(path)
+
+    def open_home(self):
+        self.go(os.path.expanduser("~"))
+
+    def open_documents(self):
+        self.go(os.path.join(os.path.expanduser("~"), "Documents"))
+
+    def open_downloads(self):
+        self.go(os.path.join(os.path.expanduser("~"), "Downloads"))
+
+    def open_music(self):
+        self.go(os.path.join(os.path.expanduser("~"), "Music"))
+
+    def open_pictures(self):
+        self.go(os.path.join(os.path.expanduser("~"), "Pictures"))
+
+    def open_videos(self):
+        self.go(os.path.join(os.path.expanduser("~"), "Videos"))
+
+    def open_trash(self):
+        trash_dir = 'C:\\$Recycle.Bin\\' if sys.platform == "win32" else os.path.expanduser("~/.local/share/Trash/files")
+        self.go(trash_dir)
 
     def add_column(self, parent_index=None):
         column_view = DragDropListView()
@@ -331,6 +384,24 @@ class MillerColumns(QMainWindow):
 
         parent_index = self.file_model.index(folder_path)
         self._update_view(parent_index)
+
+    def open_selected_items(self):
+        """
+        Open the selected items in the column view.
+        """
+        selected_indexes = self.columns[-1].selectedIndexes()
+        if not selected_indexes:
+            QMessageBox.warning(self, "No Selection", "No files or folders selected.")
+            return
+        paths = [self.file_model.filePath(index) for index in selected_indexes]
+        for path in paths:
+            if os.path.isdir(path):
+                self.open_folder(path)
+            else:
+                try:
+                    os.startfile(path)
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"{e}")
 
     def new_folder(self):
         """

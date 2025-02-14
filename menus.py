@@ -223,21 +223,25 @@ def create_menus(window):
 
     window.go_menu.addSeparator()
 
-    if isinstance(window, QtWidgets.QMainWindow):
-        go_up_action.triggered.connect(window.go_up)
-        go_up_close_action.triggered.connect(window.go_up_and_close)
-        if not sys.platform == "win32":
-            computer_action.triggered.connect(window.open_computer)
-        network_action.triggered.connect(window.open_network)
-        devices_action.triggered.connect(window.open_devices)
-        applications_action.triggered.connect(window.open_applications)
-        home_action.triggered.connect(window.open_home)
-        documents_action.triggered.connect(window.open_documents)
-        downloads_action.triggered.connect(window.open_downloads)
-        music_action.triggered.connect(window.open_music)
-        pictures_action.triggered.connect(window.open_pictures)
-        videos_action.triggered.connect(window.open_videos)
-        trash_action.triggered.connect(window.open_trash)
+    actions = {
+        'go_up': go_up_action,
+        'go_up_and_close': go_up_close_action,
+        'open_computer': computer_action if not sys.platform == "win32" else None,
+        'open_network': network_action,
+        'open_devices': devices_action,
+        'open_applications': applications_action,
+        'open_home': home_action,
+        'open_documents': documents_action,
+        'open_downloads': downloads_action,
+        'open_music': music_action,
+        'open_pictures': pictures_action,
+        'open_videos': videos_action,
+        'open_trash': trash_action
+    }
+
+    for attr, action in actions.items():
+        if action and hasattr(window, attr):
+            action.triggered.connect(getattr(window, attr))
 
     window.go_menu.aboutToShow.connect(lambda: populate_volumes(window))
 
