@@ -8,6 +8,8 @@ import win32con
 from ctypes import byref, wintypes
 from win32com.client import Dispatch
 
+from menus import shutdown # FIXME: This import does not feel clean here
+
 class HotKeyManager:
     def __init__(self, desktop_window=None):
         self.desktop_window_hwnd = int(desktop_window.winId())
@@ -37,6 +39,7 @@ class HotKeyManager:
         if self.desktop_window_hwnd and not is_shift_pressed:
             if hwnd == self.desktop_window_hwnd:
                 print("Desktop window is active, not closing")
+                shutdown()
                 return
         self.user32.PostMessageA(hwnd, win32con.WM_CLOSE, 0, 0)
 
