@@ -622,7 +622,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         self.view.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.view.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
-        self.file_items = []
+        self.items = []
         self.clipboard = []          # For Copy/Cut/Paste: list of file paths.
         self.clipboard_operation = None  # "copy" or "cut"
         self.child_windows = []
@@ -681,7 +681,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         modifiers = QtWidgets.QApplication.keyboardModifiers()
         if modifiers & QtCore.Qt.KeyboardModifier.ShiftModifier:
             self.close()
-        for item in self.file_items:
+        for item in self.items:
             if item.isSelected():
                 item.open_item()
 
@@ -802,7 +802,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def has_selected_items(self):
         """Check if any item is selected. Returns True if at least one item is selected."""
-        return any(item.isSelected() for item in self.file_items)
+        return any(item.isSelected() for item in self.items)
     
     def has_trash_items(self):
         """Check if any item is in the Trash folder."""
@@ -875,10 +875,16 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             if self.folder_path.lower() == os.getenv('USERPROFILE').lower():
                 folder_files = [name for name in folder_files if name.lower() not in ("desktop",)]
 
+        # Append each file or folder to self.items
+        for name in sorted(folder_files):
+            full_path = os.path.join(self.folder_path, name)
+            item = FileItem(full_path, QtCore.QPointF(0, 0)) # We will set the proper position later
+            self.items.append(item)
+
         occupied_positions = set()  # Store occupied positions
 
         # Mark positions of already existing items
-        for item in self.file_items:
+        for item in self.items:
             grid_x = round(item.x() / grid_width)
             grid_y = round(item.y() / grid_height)
             occupied_positions.add((grid_x, grid_y))
@@ -912,12 +918,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             occupied_positions.add((x, y))
             return QtCore.QPointF(x * grid_width, y * grid_height)
 
-        for name in sorted(folder_files):
-
-            # Skip items already in the scene
-            if any(item.file_path == name for item in self.file_items):
-                continue
-
+        for item in self.items:
+            name = item.display_name
             # Restore position if stored, otherwise find a free one
             if name in stored_positions:
                 pos_x, pos_y = stored_positions[name]
@@ -926,21 +928,17 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                 pos = self.drop_target_positions.pop(name)
             else:
                 pos = find_next_available_position()
+            item.setPos(pos)
 
-            # Create and add the new item
-            full_path = os.path.join(self.folder_path, name)
-            item = FileItem(full_path, pos)
             item.openFolderRequested.connect(self.open_folder_from_item)
             self.scene.addItem(item)
-            self.file_items.append(item)
 
         self.update_scene_rect()
 
     def get_layout(self) -> dict:
         layout = {"items": {}}
-        for item in self.file_items:
-            relative_path = os.path.basename(item.file_path)
-            layout["items"][relative_path] = (item.x(), item.y())
+        for item in self.items:
+            layout["items"][item.display_name] = (item.x(), item.y())
         
         geom = self.saveGeometry().toBase64().data().decode("utf-8")
         layout["window_geometry"] = geom
@@ -989,15 +987,15 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                     else:
                         os.remove(item.file_path)
                     self.scene.removeItem(item)
-                    if item in self.file_items:
-                        self.file_items.remove(item)
+                    if item in self.items:
+                        self.items.remove(item)
                 except Exception as e:
                     QtWidgets.QMessageBox.critical(self, "Error", f"Error deleting {item.file_path}: {e}")
             self.update_status_bar()
 
     def update_scene_rect(self):
         """Ensure the scene fits all items without shifting them unexpectedly."""
-        if self.file_items:
+        if self.items:
             bounding_rect = self.scene.itemsBoundingRect()
             visible_rect = self.view.mapToScene(self.view.rect()).boundingRect()
             self.scene.setSceneRect(0, 0, max(visible_rect.width(), bounding_rect.width()), max(visible_rect.height(), bounding_rect.height()))
@@ -1032,8 +1030,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         if not self.typed_text:
             return
 
-        for item in self.file_items:
-            if os.path.basename(item.file_path).lower().startswith(self.typed_text.lower()):
+        for item in self.items:
+            if os.path.basename(item.display_name).lower().startswith(self.typed_text.lower()):
                 self.scene.clearSelection()
                 item.setSelected(True)
                 self.view.centerOn(item)
@@ -1047,13 +1045,13 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         # TODO: Handle Shift-Arrow for multi-selection more like Finder/Explorer using a mental/virtual selection rectangle.
 
         print("Navigating selection")
-        if not self.file_items:
+        if not self.items:
             return
 
         # Get the currently selected item (or default to the first item)
         selected_items = self.scene.selectedItems()
         if not selected_items:
-            selected_items = [self.file_items[0]]
+            selected_items = [self.items[0]]
         selected_item = selected_items[0]
         selected_pos = selected_item.pos()
 
@@ -1074,7 +1072,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         candidates = []
 
         # First pass: if an arrow direction is provided, consider only items in the forward half-plane.
-        for item in self.file_items:
+        for item in self.items:
             if item == selected_item:
                 continue
             item_pos = item.pos()
@@ -1090,7 +1088,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         
         # If no candidate meets the directional criterion, fallback to all items.
         if not candidates:
-            for item in self.file_items:
+            for item in self.items:
                 if item == selected_item:
                     continue
                 item_pos = item.pos()
@@ -1113,15 +1111,15 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def refresh_view(self):
         self.layout_data = self.get_layout()  # store current positions
-        for item in self.file_items:
+        for item in self.items:
             self.scene.removeItem(item)
-        self.file_items.clear()
+        self.items.clear()
         self.load_files()
         self.update_status_bar()
         self.update_scene_rect() 
 
     def align_to_grid(self):
-        for item in self.file_items:
+        for item in self.items:
             new_x = round(item.x() / grid_width) * grid_width
             new_y = round(item.y() / grid_height) * grid_height
             item.setPos(new_x, new_y)
@@ -1133,13 +1131,13 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         # Sort items based on the selected criterion, ignoring upper/lowercase
         if criterion == "name":
-            sorted_items = sorted(self.file_items, key=lambda x: os.path.basename(x.file_path).lower())
+            sorted_items = sorted(self.items, key=lambda x: os.path.basename(x.file_path).lower())
         elif criterion == "date":
-            sorted_items = sorted(self.file_items, key=lambda x: os.path.getmtime(x.file_path))
+            sorted_items = sorted(self.items, key=lambda x: os.path.getmtime(x.file_path))
         elif criterion == "size":
-            sorted_items = sorted(self.file_items, key=lambda x: os.path.getsize(x.file_path))
+            sorted_items = sorted(self.items, key=lambda x: os.path.getsize(x.file_path))
         elif criterion == "type":
-            sorted_items = sorted(self.file_items, key=lambda x: os.path.splitext(x.file_path)[1].lower())
+            sorted_items = sorted(self.items, key=lambda x: os.path.splitext(x.file_path)[1].lower())
             
         occupied_positions = set()
 
@@ -1171,7 +1169,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         self.save_layout()
 
     def update_status_bar(self):
-        self.statusBar().showMessage(f"Folder: {self.folder_path} | Items: {len(self.file_items)}")
+        self.statusBar().showMessage(f"Folder: {self.folder_path} | Items: {len(self.items)}")
 
     def get_info(self):
         selected_items = self.scene.selectedItems()
@@ -1276,7 +1274,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.critical(self, "Error", f"Could not create folder: {e}")
 
     def select_all(self):
-        for item in self.file_items:
+        for item in self.items:
             item.setSelected(True)
 
     def closeEvent(self, event):

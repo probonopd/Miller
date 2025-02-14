@@ -81,6 +81,10 @@ def create_menus(window):
         logout_action = QtGui.QAction("Log Out", window)
         logout_action.triggered.connect(logout)
         file_menu.addAction(logout_action)
+
+        restart_action = QtGui.QAction("Restart", window)
+        restart_action.triggered.connect(restart)
+        file_menu.addAction(restart_action)
         
         shutdown_action = QtGui.QAction("Shut Down", window)
         shutdown_action.triggered.connect(shutdown)
@@ -359,6 +363,27 @@ def logout():
                     QtWidgets.QMessageBox.critical(None, "Error", f"Failed to log out: {stderr}")
             except Exception as e:
                 QtWidgets.QMessageBox.critical(None, "Error", f"Failed to log out: {e}")
+
+def restart():
+    message_box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Icon.Question, "Restart", "Are you sure you want to restart the computer?\nUnsaved work will be lost.", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+    message_box.setIcon(QtWidgets.QMessageBox.Icon.Question)
+    message_box.setDefaultButton(QtWidgets.QMessageBox.StandardButton.No)
+    if message_box.exec() == QtWidgets.QMessageBox.StandardButton.Yes:
+        if sys.platform == "win32":
+            try:
+                result = subprocess.run(["shutdown", "/r", "/t", "0"], capture_output=True)
+                if stderr := result.stderr.decode("utf-8"):
+                    QtWidgets.QMessageBox.critical(None, "Error", f"Failed to restart: {stderr}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(None, "Error", f"Failed to restart: {e}")
+        else:
+            try:
+                result = subprocess.run(["reboot"], capture_output=True)
+                if stderr := result.stderr.decode("utf-8"):
+                    QtWidgets.QMessageBox.critical(None, "Error", f"Failed to restart: {stderr}")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(None, "Error", f"Failed to restart: {e}")
+
 
 def shutdown():
     message_box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Icon.Question, "Shut Down", "Are you sure you want to shut down the computer?\nUnsaved work will be lost.", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
