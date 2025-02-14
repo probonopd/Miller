@@ -1447,11 +1447,11 @@ if __name__ == "__main__":
         # When the application gets killed or otherwise exits, unregister the hotkeys
         app.aboutToQuit.connect(hotkey_manager.unregister_hotkeys)
 
-    # Ctrl+Shift+F4 quits the application
-    QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+Shift+F4"), desktop_window, QtWidgets.QApplication.quit)
+    # Alt+Shift+F4 quits the application
+    QtGui.QShortcut(QtGui.QKeySequence("Alt+Shift+F4"), desktop_window, QtWidgets.QApplication.quit)
 
     # Check for the presence of WAYLAND_DISPLAY and show info box for Wayland users
     if "WAYLAND_DISPLAY" in os.environ:
-        QtWidgets.QMessageBox.information(m.desktop_window, "Wayland", "Spatial Filer does not work properly on Wayland yet.\nWindows are all over the place.\nMenu mouse releasing doesn't work properly.")
+        QtWidgets.QMessageBox.information(desktop_window, "Wayland", "Spatial Filer does not work properly on Wayland yet.\nWindows are all over the place.\nMenu mouse releasing doesn't work properly.")
 
     sys.exit(app.exec())
