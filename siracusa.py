@@ -512,6 +512,16 @@ class FileItem(QtWidgets.QGraphicsObject):
         else:
             url = QtCore.QUrl.fromLocalFile(target_path)
             QtGui.QDesktopServices.openUrl(url)
+            # Set wait cursor for 15 seconds or until the application is launched as evidenced by our window no longer being the frontmost window in the z-order.
+            # On Windows, this works nicely. On Linux, it remains to be seen.
+            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+            start_time = time.time()
+            while time.time() - start_time < 15:
+                QtWidgets.QApplication.processEvents()
+                this_window = self.scene().views()[0].window()
+                if not this_window.isActiveWindow():
+                    break
+            QtCore.QTimer.singleShot(100, lambda: QtWidgets.QApplication.restoreOverrideCursor())
 
     def animate_opening(self):
         """Animate the item when opened: Increase size x2 and fade out, then reset."""
