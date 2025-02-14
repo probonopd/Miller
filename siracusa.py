@@ -257,7 +257,7 @@ class FileItem(QtWidgets.QGraphicsObject):
     # Signal to request opening a folder.
     openFolderRequested = QtCore.pyqtSignal(str)
 
-    def __init__(self, file_path: str, pos: QtCore.QPointF, width = item_width, height = item_height):
+    def __init__(self, file_path: str, pos, width = item_width, height = item_height):
         super().__init__()
         self.file_path = file_path
         self.width = width
@@ -266,7 +266,8 @@ class FileItem(QtWidgets.QGraphicsObject):
             QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
             QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
         )
-        self.setPos(pos)
+        if pos:
+            self.setPos(pos)
         self.is_folder = os.path.isdir(file_path)
 
         file_info = QtCore.QFileInfo(file_path)
@@ -878,13 +879,15 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         # Append each file or folder to self.items
         for name in sorted(folder_files):
             full_path = os.path.join(self.folder_path, name)
-            item = FileItem(full_path, QtCore.QPointF(0, 0)) # We will set the proper position later
+            item = FileItem(full_path, None)
             self.items.append(item)
 
         occupied_positions = set()  # Store occupied positions
 
         # Mark positions of already existing items
         for item in self.items:
+            if item.pos() == QtCore.QPointF(0, 0):
+                continue
             grid_x = round(item.x() / grid_width)
             grid_y = round(item.y() / grid_height)
             occupied_positions.add((grid_x, grid_y))
