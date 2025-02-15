@@ -152,7 +152,7 @@ class StartMenu(QtWidgets.QMenu):
         submenu.setIcon(QtGui.QIcon.fromTheme("folder"))
         submenu.path = self, os.getenv("SystemRoot", "")
         # Connect aboutToShow to repopulate the submenu dynamically.
-        submenu.aboutToShow.connect(lambda m=submenu: add_items_from_directory(submenu, os.getenv("SystemRoot", ""), clear_first=False, recursive=False, add_folders=self.add_folders))
+        submenu.aboutToShow.connect(lambda m=submenu: add_items_from_directory(submenu, os.getenv("SystemRoot", ""), clear_first=True, recursive=False, add_folders=self.add_folders))
         submenu.hovered.connect(folder_menu_hovered)
         
         # For the main (merged) start menu, accumulate items from each directory.
