@@ -70,7 +70,7 @@ def folder_menu_hovered():
     if menu and hasattr(menu, "path") and QtWidgets.QApplication.keyboardModifiers() != QtCore.Qt.KeyboardModifier.NoModifier:
         launch_folder(menu.path)
 
-def add_items_from_directory(menu, directory, clear_first=True):
+def add_items_from_directory(menu, directory, clear_first=True, recursive=True):
     """
     Populates a menu with items from a directory.
     For submenus (clear_first=True), the menu is cleared each time it’s about to show,
@@ -84,7 +84,7 @@ def add_items_from_directory(menu, directory, clear_first=True):
     for entry in sorted(os.listdir(directory), key=str.lower):
         full_path = os.path.join(directory, entry)
         name = os.path.splitext(entry)[0]
-        if os.path.isdir(full_path):
+        if os.path.isdir(full_path) and recursive == True:
             submenu = menu.addMenu(name)
             submenu.setIcon(QtGui.QIcon.fromTheme("folder"))
             submenu.path = full_path
@@ -121,11 +121,16 @@ class StartMenu(QtWidgets.QMenu):
     
     def populate_start_menu(self):
         self.clear()  # Clear the entire menu on each opening
+        # Add the .exe files in C:\Windows but not its subdirectories.
+        add_items_from_directory(self, os.getenv("SystemRoot", ""), clear_first=False, recursive=False)
         # For the main (merged) start menu, accumulate items from each directory.
         for dir_path in filter(os.path.isdir, self.start_menu_dirs):
             add_items_from_directory(self, dir_path, clear_first=False)
         # Sort the menu items alphabetically (ignoring case)
         self.addActions(sorted(self.actions(), key=lambda a: a.text().lower()))
+        # If an menu has no actions, disable it so it doesn't show up as an empty submenu.
+        if not self.actions():
+            self.setEnabled(False)
 
 class StartMenuWindow(QtWidgets.QMainWindow):
     def __init__(self):
