@@ -29,7 +29,7 @@ class AppImage:
     def _extract_icon_data(self):
         try:
             with SquashFsImage.from_file(self.path, offset=self.offset) as image:
-                diricon = image.find('.DirIcon')
+                diricon = image.select('/.DirIcon')
                 if not diricon:
                     logging.warning("DirIcon not found in the SquashFS image")
                     return None

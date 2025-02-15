@@ -27,6 +27,7 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
+* By moving the icon logic to the FileItem paint method, we can possibly increase performance by only loading the icon when needed
 * Why does snap_to_grid not sync across windows?
 * Get rid of open_windows completely. Instead, whenever a window is created, set an attribute with the normalized path on it. Then, whenever a window shall be opened, check if a window with that attribute already exists. This way, we can get rid of the open_windows dictionary which is not robust and may get out of sync.
 * Look into https://github.com/flacjacket/pywayland/
@@ -275,6 +276,7 @@ class FileItem(QtWidgets.QGraphicsObject):
             self.setPos(pos)
         self.is_folder = os.path.isdir(file_path)
 
+        # FIXME: By moving the icon logic to the FileItem paint method, we can possibly increase performance by only loading the icon when needed.
         file_info = QtCore.QFileInfo(file_path)
         if self.is_folder and not os.path.ismount(file_path):
             self.icon = QtGui.QIcon.fromTheme("folder")
@@ -564,6 +566,7 @@ class FileItem(QtWidgets.QGraphicsObject):
         # Create context menu
         menu = QtWidgets.QMenu()
         open_action = menu.addAction("Open")
+        menu.addSeparator()
         info_action = menu.addAction("Get Info...")
         rename_action = menu.addAction("Rename")
         delete_action = menu.addAction("Delete")
@@ -719,7 +722,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def open_selected_items(self):
         """Call open_item on the selected items"""
         modifiers = QtWidgets.QApplication.keyboardModifiers()
-        if modifiers & QtCore.Qt.KeyboardModifier.ShiftModifier:
+        if modifiers & QtCore.Qt.KeyboardModifier.ShiftModifier and not self.is_desktop_window:
             self.close()
         for item in self.items:
             if item.isSelected():
@@ -1418,6 +1421,8 @@ def handle_drive_removal(drive):
             ejected_drives.discard(normalized_drive)
             return
         else:
+            if normalized_drive.startswith("/tmp") or os.path.basename(normalized_drive).startswith("."):
+                return
             # Show error message only if it was NOT ejected by the app
             QtWidgets.QMessageBox.critical(
                 None, "Warning",
