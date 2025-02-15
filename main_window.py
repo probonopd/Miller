@@ -13,7 +13,7 @@ import os
 # FIXME: Import Qt like this: from PyQt6 import QtWidgets, QtGui, QtCore, QtWebEngineWidgets
 from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu, QStyle
 from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl, QMimeData
-from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QDrag, QCursor
+from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QDrag, QCursor, QIcon
 from PyQt6.QtWebEngineWidgets import QWebEngineView # pip install PyQt6-WebEngine
 import mimetypes
 if sys.platform == 'win32':
@@ -29,7 +29,8 @@ class CustomFileSystemModel(QFileSystemModel):
     def data(self, index, role):
         if role == Qt.ItemDataRole.DecorationRole:
             if self.isDir(index):
-                return self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon)
+                # Do not use Windows folder icons but the default folder icon from the theme
+                return QIcon.fromTheme("folder")
         return super().data(index, role)
 
     def style(self):
@@ -111,7 +112,7 @@ class MillerColumns(QMainWindow):
         self.file_model = CustomFileSystemModel() # TODO: Don't use a model, just read the directories directly. This allows us to flexibly filter out certain directories such as . and ..
         self.file_model.setRootPath('')
         self.file_model.setOption(CustomFileSystemModel.Option.DontUseCustomDirectoryIcons, False)  # Enable color icons
-        self.file_model.setFilter(QDir.Filter.AllEntries | QDir.Filter.Hidden | QDir.Filter.System)
+        self.file_model.setFilter(QDir.Filter.AllEntries | QDir.Filter.Hidden | QDir.Filter.System | QDir.Filter.NoDotAndDotDot)
         # FIXME: . and .. should not be shown in the view, but things like $RECYCLE.BIN should be shown
 
         home_dir = os.path.expanduser('~')
