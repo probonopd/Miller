@@ -1223,6 +1223,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             sorted_items = sorted(self.items, key=lambda x: os.path.getsize(x.file_path), reverse=True)
         elif criterion == "type":
             sorted_items = sorted(self.items, key=lambda x: os.path.splitext(x.file_path)[1].lower())
+        # Volumes at the top
+        sorted_items = sorted(sorted_items, key=lambda x: x.volume_name is not None, reverse=True)
             
         occupied_positions = set()
 
