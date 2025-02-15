@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-import sys, os , logging
+import sys, os , logging, shutil, time
 from PySquashfsImage import SquashFsImage
 from PySquashfsImage.file import Symlink
 from elftools.elf.elffile import ELFFile
@@ -60,22 +60,40 @@ class AppImage:
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
             QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
             if sys.platform == "win32":
+                self.set_wait_cursor_until_launched()
                 success = os.system(f"wsl {linux_path}") == 0
             else:
                 # If "launch" command is available, let it launch the file
                 if shutil.which("launch"):
                     success = os.system(f"launch {linux_path}") == 0
                 else:
-                    response = QtWidgets.QMessageBox.question(None, "Execute?", f"Execute {self.path}?", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
-                    if response == QtWidgets.QMessageBox.StandardButton.Yes:
-                        # Attempt to set the executable bit
-                        if not os.access(self.path, os.X_OK):
-                            QtWidgets.QMessageBox.warning(None, "Error", f"Cannot execute {self.path}.")
-                            return
+                    if not os.access(self.path, os.X_OK):
+                        response = QtWidgets.QMessageBox.question(None, "Execute?", f"Execute {self.path}?", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+                        if response == QtWidgets.QMessageBox.StandardButton.Yes:
+                            # Attempt to set the executable bit
+                            try:
+                                os.chmod(self.path, os.stat(self.path).st_mode | 0o111)
+                            except Exception as e:
+                                QtWidgets.QMessageBox.warning(None, "Error", f"Cannot set executable bit: {e}")
+                                return
+                    self.set_wait_cursor_until_launched()
                     success = os.system(self.path) == 0
             if not success:
                 QtWidgets.QMessageBox.critical(None, "Error", f"Failed to open {self.path}")    
             return
+    
+    def set_wait_cursor_until_launched(self):
+        # Set wait cursor for 15 seconds or until the application is launched as evidenced by our window no longer being the frontmost window in the z-order.
+        # On Windows, this works nicely. On Linux, it remains to be seen.
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+        start_time = time.time()
+        this_window = QtWidgets.QApplication.activeWindow()
+        while time.time() - start_time < 15:
+            QtWidgets.QApplication.processEvents()
+            this_window = QtWidgets.QApplication.activeWindow()
+            if not this_window.isActiveWindow():
+                break
+        QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
 
 
 def main():
