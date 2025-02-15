@@ -505,22 +505,39 @@ class FileItem(QtWidgets.QGraphicsObject):
 
     def open_item(self):
         """Opens a folder or launches a file."""
+
+        self.animate_opening()
+
         # Special case: On Windows, .lnk files are shortcuts to files or folders.
         target_path = self.file_path
         if sys.platform == "win32" and self.file_path.lower().endswith(".lnk" or ".url"):
             target_path = self.resolve_lnk(self.file_path)
 
-        # Quick and dirty hack but does the job for now: Open .AppImage files by executing them using WSL
-        if target_path.lower().endswith(".appimage") and sys.platform == "win32":
-            linux_path = target_path.replace("\\", "/").replace("C:", "/mnt/c")
+        # Quick and dirty hack but does the job for now: Open .AppImage files (on Windows, by executing them using WSL)
+        if target_path.lower().endswith(".appimage"):
+            if sys.platform == "win32":
+                linux_path = target_path.replace("\\", "/").replace("C:", "/mnt/c")
+            else:
+                linux_path = target_path
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
             QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
-            success = os.system(f"wsl {linux_path}") == 0
+            if sys.platform == "win32":
+                success = os.system(f"wsl {linux_path}") == 0
+            else:
+                # If "launch" command is available, let it launch the file
+                if shutil.which("launch"):
+                    success = os.system(f"launch {linux_path}") == 0
+                else:
+                    response = QtWidgets.QMessageBox.question(None, "Execute?", f"Execute {target_path}?", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+                    if response == QtWidgets.QMessageBox.StandardButton.Yes:
+                        # Attempt to set the executable bit
+                        if not os.access(target_path, os.X_OK):
+                            QtWidgets.QMessageBox.warning(None, "Error", f"Cannot execute {target_path}.")
+                            return
+                    success = os.system(target_path) == 0
             if not success:
                 QtWidgets.QMessageBox.critical(None, "Error", f"Failed to open {target_path}")    
             return
-
-        self.animate_opening()
 
         if os.path.isdir(target_path):
             self.openFolderRequested.emit(target_path)
