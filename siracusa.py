@@ -29,7 +29,7 @@ Features:
 TODO/FIXME:
 * By moving the icon logic to the FileItem paint method, we can possibly increase performance by only loading the icon when needed
 * Why does snap_to_grid not sync across windows?
-* Get rid of open_windows completely. Instead, whenever a window is created, set an attribute with the normalized path on it. Then, whenever a window shall be opened, check if a window with that attribute already exists. This way, we can get rid of the open_windows dictionary which is not robust and may get out of sync.
+* Get rid of open_windows registry completely. Instead, whenever a window is created, set an attribute with the normalized path on it. Then, whenever a window shall be opened, check if a window with that attribute already exists. This way, we can get rid of the open_windows dictionary which is not robust and may get out of sync.
 * Look into https://github.com/flacjacket/pywayland/
 
 FOR TESTING:

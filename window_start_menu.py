@@ -25,7 +25,10 @@ def load_icon(path, fallback_path=None):
     if path:
         expanded_path = os.path.expandvars(path)
         if os.path.exists(expanded_path):
-            return QtGui.QIcon(expanded_path)
+            if path.endswith(".exe"):
+                return icon_provider.icon(QtCore.QFileInfo(path))
+            else:
+                return QtGui.QIcon(expanded_path)
     if fallback_path:
         expanded_fallback = os.path.expandvars(fallback_path)
         if os.path.exists(expanded_fallback):
