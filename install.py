@@ -1,104 +1,139 @@
-
 #!/usr/bin/env python3
+import sys, os, subprocess, venv, time
 
-import sys
-import os
-import subprocess
-import venv
-import threading
-import time
-
-# Configurations
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENV_DIR = os.path.join(BASE_DIR, "venv")
 SIRACUSA_SCRIPT = os.path.join(BASE_DIR, "siracusa.py")
-REQUIREMENTS_FILE = (
-    os.path.join(BASE_DIR, "requirements-windows.txt")
-    if sys.platform == "win32"
-    else os.path.join(BASE_DIR, "requirements-linux.txt")
-)
+REQUIREMENTS_FILE = os.path.join(BASE_DIR, "requirements-windows.txt") if sys.platform == "win32" else os.path.join(BASE_DIR, "requirements-linux.txt")
 
-# Function to log messages with timestamps
-def log(message):
-    timestamp = time.strftime("[%H:%M:%S]", time.localtime())
-    print(f"{timestamp} {message}")
-
-# Function to create a virtual environment if it doesn't exist
-def create_virtual_env():
-    if not os.path.exists(VENV_DIR):
-        log("Creating virtual environment...")
-        venv.create(VENV_DIR, with_pip=True)
-        log(f"Virtual environment created at {VENV_DIR}.")
-    else:
-        log("Virtual environment already exists.")
-
-# Function to install dependencies
-def install_dependencies():
-    if not os.path.exists(REQUIREMENTS_FILE):
-        log(f"Error: The requirements file '{REQUIREMENTS_FILE}' is missing.")
-        return False
-
-    create_virtual_env()
-
-    # Path to the pip executable inside the virtual environment
-    pip_path = (
-        os.path.join(VENV_DIR, "Scripts", "pip.exe")
-        if sys.platform == "win32"
-        else os.path.join(VENV_DIR, "bin", "pip")
-    )
-
-    if not os.path.exists(pip_path):
-        log("Error: pip is missing in the virtual environment.")
-        return False
-
-    log(f"Installing dependencies from {REQUIREMENTS_FILE}...")
-    
-    result = subprocess.run(
-        [pip_path, "install", "-r", REQUIREMENTS_FILE],
-        capture_output=True,
-        text=True
-    )
-
-    if result.returncode == 0:
-        log("✅ Installation completed successfully!")
-        return True
-    else:
-        log(f"❌ Error: Installation failed. Details:\n{result.stderr}")
-        return False
-
-# Function to run siracusa.py inside the virtual environment
-def run_siracusa():
-    if not os.path.exists(SIRACUSA_SCRIPT):
-        log(f"Error: The script '{SIRACUSA_SCRIPT}' is missing.")
-        return
-
-    python_executable = (
-        os.path.join(VENV_DIR, "Scripts", "python.exe")
-        if sys.platform == "win32"
-        else os.path.join(VENV_DIR, "bin", "python")
-    )
-
-    if not os.path.exists(python_executable):
-        log("Error: Python executable not found in virtual environment.")
-        return
-
-    log(f"Running '{SIRACUSA_SCRIPT}' inside virtual environment...")
-    result = subprocess.run([python_executable, SIRACUSA_SCRIPT], text=True)
-
-    if result.returncode == 0:
-        log("✅ 'siracusa.py' executed successfully!")
-    else:
-        log(f"❌ Error: 'siracusa.py' exited with code {result.returncode}")
-
-# Function to execute installation and run the script
 def main():
-    log("Starting setup process...")
+    timestamp = lambda: time.strftime("[%H:%M:%S]", time.localtime())
+    print(f"{timestamp()} Starting setup process...")
+
+    # Ensure pip is installed on systems that require a system-level install
+    print(f"{timestamp()} Install pip...")
+    if os.path.exists("/etc/debian_version"):
+        print(f"{timestamp()} Installing pip for Debian/Ubuntu...")
+        if os.system("sudo apt update") != 0 or os.system("sudo apt install -y python3-pip") != 0:
+            print(f"{timestamp()} ❌ Error: Failed to install pip on Debian/Ubuntu.")
+            sys.exit(1)
+    elif os.path.exists("/etc/redhat-release"):
+        print(f"{timestamp()} Installing pip for Fedora/RedHat...")
+        if os.system("sudo dnf install -y python3-pip") != 0:
+            print(f"{timestamp()} ❌ Error: Failed to install pip on Fedora/RedHat.")
+            sys.exit(1)
+    elif os.path.exists("/etc/SuSE-release"):
+        print(f"{timestamp()} Installing pip for SUSE...")
+        if os.system("sudo zypper install -y python3-pip") != 0:
+            print(f"{timestamp()} ❌ Error: Failed to install pip on SUSE.")
+            sys.exit(1)
+    elif os.path.exists("/etc/arch-release"):
+        print(f"{timestamp()} Installing pip for Arch/Arch-based...")
+        if os.system("sudo pacman -S --noconfirm python-pip") != 0:
+            print(f"{timestamp()} ❌ Error: Failed to install pip on Arch.")
+            sys.exit(1)
+    elif os.path.exists("/etc/gentoo-release"):
+        print(f"{timestamp()} Installing pip for Gentoo...")
+        if os.system("sudo emerge -av app-admin/python-updater") != 0:
+            print(f"{timestamp()} ❌ Error: Failed to install pip on Gentoo.")
+            sys.exit(1)
+    elif os.path.exists("/etc/alpine-release"):
+        print(f"{timestamp()} Installing pip for Alpine...")
+        if os.system("sudo apk add py3-pip") != 0:
+            print(f"{timestamp()} ❌ Error: Failed to install pip on Alpine.")
+            sys.exit(1)
+    elif sys.platform == "darwin":
+        print(f"{timestamp()} Installing pip for MacOS...")
+        if os.system("brew install python3") != 0:
+            print(f"{timestamp()} ❌ Error: Failed to install pip on MacOS.")
+            sys.exit(1)
     
-    install_thread = threading.Thread(target=install_dependencies, daemon=True)
-    install_thread.start()
-    install_thread.join()  # Wait for installation to complete
+    # Check requirements file
+    if not os.path.exists(REQUIREMENTS_FILE):
+        print(f"{timestamp()} Error: The requirements file '{REQUIREMENTS_FILE}' is missing.")
+        sys.exit(1)
     
-    run_siracusa()  # Run siracusa.py after dependencies are installed
+    # Create virtual environment if needed
+    if not os.path.exists(VENV_DIR):
+        print(f"{timestamp()} Creating virtual environment...")
+        venv.create(VENV_DIR, with_pip=True)
+        print(f"{timestamp()} Virtual environment created at {VENV_DIR}.")
+    else:
+        print(f"{timestamp()} Virtual environment already exists.")
+    
+    # Install dependencies
+    pip_path = os.path.join(VENV_DIR, "Scripts", "pip.exe") if sys.platform == "win32" else os.path.join(VENV_DIR, "bin", "pip")
+    if not os.path.exists(pip_path):
+        print(f"{timestamp()} Error: pip is missing in the virtual environment.")
+        sys.exit(1)
+    
+    print(f"{timestamp()} Installing dependencies from {REQUIREMENTS_FILE}...")
+    result = subprocess.run([pip_path, "install", "-r", REQUIREMENTS_FILE], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"{timestamp()} ❌ Error: Installation failed. Details:\n{result.stderr}")
+        sys.exit(1)
+    print(f"{timestamp()} ✅ Installation completed successfully!")
+
+    if not os.path.exists("icons/elementary-xfce"):
+        print(f"{timestamp()} Downloading icons...")
+        import requests
+        url = "http://archive.ubuntu.com/ubuntu/pool/universe/x/xubuntu-artwork/xubuntu-artwork_16.04.2.tar.xz"
+        filename = url.split("/")[-1]
+        response = requests.get(url)
+        with open(filename, "wb") as f:
+            f.write(response.content)
+        print(f"{timestamp()} Downloaded 'xubuntu-artwork_16.04.2.tar.xz' from {url}")
+        if not os.path.exists("icons"):
+            os.makedirs("icons")
+        # Unpack but only the subdirectory elementary-xfce to icons/
+        print(f"{timestamp()} Extracting icons...")
+        import tarfile
+        with tarfile.open(filename, "r:xz") as tar:
+            # Extract "trunk/usr/share/icons/elementary-xfce" to "icons/elementary-xfce" (need to strip the first directories)
+            for member in tar.getmembers():
+                if member.name.startswith("trunk/usr/share/icons/elementary-xfce"):
+                    member.name = member.name.replace("trunk/usr/share/icons/", "")
+                    tar.extract(member, path="icons/")
+        print(f"{timestamp()} Extracted 'elementary-xfce' to 'icons/'")
+        os.remove(filename)
+
+    # Fonts
+    if not sys.platform == "win32":
+        if not os.path.exists("fonts/Inter-Regular.ttf") or not os.path.exists("fonts/Inter-Bold.ttf") or not os.path.exists("fonts/Inter-Italic.ttf") or not os.path.exists("fonts/Inter-BoldItalic.ttf"):
+            print(f"{timestamp()} Downloading fonts...")
+            import requests
+            urls = [
+                "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-Regular.ttf",
+                "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-Bold.ttf",
+                "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-Italic.ttf",
+                "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-BoldItalic.ttf"
+            ]
+            if not os.path.exists("fonts"):
+                os.makedirs("fonts")
+            for url in urls:
+                filename = url.split("/")[-1]
+                response = requests.get(url)
+                with open(os.path.join("fonts", filename), "wb") as f:
+                    f.write(response.content)
+                print(f"{timestamp()} Downloaded '{filename}' from {url}")
+            print(f"{timestamp()} Downloaded fonts to 'fonts/'")
+    
+    # Run siracusa.py
+    if not os.path.exists(SIRACUSA_SCRIPT):
+        print(f"{timestamp()} Error: The script '{SIRACUSA_SCRIPT}' is missing.")
+        sys.exit(1)
+    
+    python_executable = os.path.join(VENV_DIR, "Scripts", "python.exe") if sys.platform == "win32" else os.path.join(VENV_DIR, "bin", "python")
+    if not os.path.exists(python_executable):
+        print(f"{timestamp()} Error: Python executable not found in virtual environment.")
+        sys.exit(1)
+    
+    print(f"{timestamp()} Running '{SIRACUSA_SCRIPT}' inside virtual environment...")
+    result = subprocess.run([python_executable, SIRACUSA_SCRIPT], text=True)
+    if result.returncode != 0:
+        print(f"{timestamp()} ❌ Error: 'siracusa.py' exited with code {result.returncode}")
+        sys.exit(1)
+    print(f"{timestamp()} ✅ 'siracusa.py' executed successfully!")
 
 if __name__ == "__main__":
     main()

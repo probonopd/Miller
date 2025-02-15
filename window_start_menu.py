@@ -70,43 +70,64 @@ def folder_menu_hovered():
     if menu and hasattr(menu, "path") and QtWidgets.QApplication.keyboardModifiers() != QtCore.Qt.KeyboardModifier.NoModifier:
         launch_folder(menu.path)
 
-def add_items_from_directory(menu, directory, clear_first=True, recursive=True):
+def add_items_from_directory(menu, directory, clear_first=True, recursive=True, add_folders=True):
     """
     Populates a menu with items from a directory.
+    
+    If add_folders is True, folder submenus are created.
+    If add_folders is False, folders are not added to the menu as submenus, 
+    only non-folder items (like .lnk and .exe files) are added.
+    
     For submenus (clear_first=True), the menu is cleared each time it’s about to show,
     preventing duplicate entries.
+    
     For the top-level menu (clear_first=False), items from multiple directories are accumulated.
     """
+    if add_folders == False:
+        exclude = ["folder", "install", "help", "uninstall", "manual", "readme", "license", "support", "sample", "example", ".txt", ".pdf"]
+    else:
+        exclude = []
+
     if not os.path.isdir(directory):
         return
     if clear_first:
         menu.clear()  # Only clear if we're dynamically repopulating a submenu.
     for entry in sorted(os.listdir(directory), key=str.lower):
         full_path = os.path.join(directory, entry)
-        name = os.path.splitext(entry)[0]
-        if os.path.isdir(full_path) and recursive == True:
-            submenu = menu.addMenu(name)
-            submenu.setIcon(QtGui.QIcon.fromTheme("folder"))
-            submenu.path = full_path
-            # For dynamic submenus, connect aboutToShow with clear_first=True so that they refresh each time.
-            submenu.aboutToShow.connect(lambda m=submenu: add_items_from_directory(m, m.path, True))
-            submenu.hovered.connect(folder_menu_hovered)
+        name, ext = os.path.splitext(entry)
+        # If we encounter a folder and recursion is True...
+        if os.path.isdir(full_path) and recursive:
+            if add_folders:
+                # Create a submenu for the folder
+                submenu = menu.addMenu(name)
+                submenu.setIcon(QtGui.QIcon.fromTheme("folder"))
+                submenu.path = full_path
+                # Connect aboutToShow to repopulate the submenu dynamically.
+                submenu.aboutToShow.connect(lambda m=submenu: add_items_from_directory(m, m.path, True, recursive, add_folders))
+                submenu.hovered.connect(folder_menu_hovered)
+            else:
+                # Do not add a submenu for the folder; instead, merge its non-folder items into the current menu
+                if not any(keyword in name.lower() for keyword in exclude):
+                    print(full_path)
+                    add_items_from_directory(menu, full_path, False, recursive, add_folders)
         elif entry.lower().endswith(".lnk"):
             shortcut_data = resolve_shortcut(full_path)
-            action = QtGui.QAction(name, menu)
-            action.setIcon(load_icon(shortcut_data.get("icon"), shortcut_data.get("target")))
-            action.setData({"target_path": shortcut_data.get("target"), "arguments": shortcut_data.get("arguments")})
-            action.triggered.connect(menu_item_triggered)
-            menu.addAction(action)
+            if not any(keyword in name.lower() for keyword in exclude) and shortcut_data.get("target"):
+                action = QtGui.QAction(name, menu)
+                action.setIcon(load_icon(shortcut_data.get("icon"), shortcut_data.get("target")))
+                action.setData({"target_path": shortcut_data.get("target"), "arguments": shortcut_data.get("arguments")})
+                action.triggered.connect(menu_item_triggered)
+                menu.addAction(action)
         elif entry.lower().endswith(".exe"):
-            action = QtGui.QAction(name, menu)
-            action.setIcon(load_icon(full_path))
-            action.setData({"target_path": full_path, "arguments": None})
-            action.triggered.connect(menu_item_triggered)
-            menu.addAction(action)
+            if not any(keyword in name.lower() for keyword in exclude):
+                action = QtGui.QAction(name, menu)
+                action.setIcon(load_icon(full_path))
+                action.setData({"target_path": full_path, "arguments": None})
+                action.triggered.connect(menu_item_triggered)
+                menu.addAction(action)
 
 class StartMenu(QtWidgets.QMenu):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, add_folders=True):
         super().__init__(parent)
         self.setIcon(load_icon(None, "application-x-executable"))
         if sys.platform == "win32":
@@ -114,6 +135,7 @@ class StartMenu(QtWidgets.QMenu):
         if self.icon().isNull():
             self.setIcon(QtGui.QIcon.fromTheme("folder"))
         self.aboutToShow.connect(self.populate_start_menu)
+        self.add_folders = add_folders
         self.start_menu_dirs = [
             os.path.join(os.getenv("ProgramData", ""), r"Microsoft\Windows\Start Menu\Programs"),
             os.path.join(os.getenv("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs")
@@ -122,13 +144,20 @@ class StartMenu(QtWidgets.QMenu):
     def populate_start_menu(self):
         self.clear()  # Clear the entire menu on each opening
         # Add the .exe files in C:\Windows but not its subdirectories.
-        add_items_from_directory(self, os.getenv("SystemRoot", ""), clear_first=False, recursive=False)
+        # Create a submenu for the folder
+        submenu = self.addMenu("Windows")
+        submenu.setIcon(QtGui.QIcon.fromTheme("folder"))
+        submenu.path = self, os.getenv("SystemRoot", "")
+        # Connect aboutToShow to repopulate the submenu dynamically.
+        submenu.aboutToShow.connect(lambda m=submenu: add_items_from_directory(submenu, os.getenv("SystemRoot", ""), clear_first=False, recursive=False, add_folders=self.add_folders))
+        submenu.hovered.connect(folder_menu_hovered)
+        
         # For the main (merged) start menu, accumulate items from each directory.
         for dir_path in filter(os.path.isdir, self.start_menu_dirs):
-            add_items_from_directory(self, dir_path, clear_first=False)
+            add_items_from_directory(self, dir_path, clear_first=False, recursive=True, add_folders=self.add_folders)
         # Sort the menu items alphabetically (ignoring case)
         self.addActions(sorted(self.actions(), key=lambda a: a.text().lower()))
-        # If an menu has no actions, disable it so it doesn't show up as an empty submenu.
+        # If a menu has no actions, disable it so it doesn't show up as an empty submenu.
         if not self.actions():
             self.setEnabled(False)
 
@@ -137,9 +166,9 @@ class StartMenuWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("Custom Merged Start Menu")
         self.resize(600, 400)
-
         menubar = self.menuBar()
-        self.start_menu = StartMenu(self)
+        # Change the add_folders flag here (False will merge non-folder items recursively)
+        self.start_menu = StartMenu(self, add_folders=True)
         menubar.addMenu(self.start_menu)
         menubar.setVisible(True)
 

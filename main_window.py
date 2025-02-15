@@ -10,11 +10,10 @@ including file navigation, status bar updates, etc.
 import sys, os
 import appimage
 
-# FIXME: Import Qt like this: from PyQt6 import QtWidgets, QtGui, QtCore, QtWebEngineWidgets
+# FIXME: Import Qt like this: from PyQt6 import QtWidgets, QtGui, QtCore
 from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu, QStyle
 from PyQt6.QtCore import QSettings, QByteArray, Qt, QDir, QModelIndex, QUrl, QMimeData
 from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QDrag, QCursor, QIcon
-from PyQt6.QtWebEngineWidgets import QWebEngineView # pip install PyQt6-WebEngine
 import mimetypes
 if sys.platform == 'win32':
     from windows_integration import show_context_menu
@@ -183,7 +182,6 @@ class MillerColumns(QMainWindow):
         self.text_preview.setReadOnly(True)
         self.image_preview = QLabel()
         self.image_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.pdf_preview = QWebEngineView()
 
         self.preview_panel.setFixedWidth(200)
 
@@ -194,7 +192,6 @@ class MillerColumns(QMainWindow):
 
         self.preview_panel.addWidget(self.text_preview)
         self.preview_panel.addWidget(self.image_preview)
-        self.preview_panel.addWidget(self.pdf_preview)
 
     def quit_application(self):
         app = QApplication.instance()

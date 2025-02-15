@@ -297,7 +297,9 @@ class FileItem(QtWidgets.QGraphicsObject):
 
         self.drag_start_position = None
 
-        if os.path.ismount(file_path):
+
+        storage_info = QtCore.QStorageInfo(file_path)
+        if storage_info.isValid() and storage_info.isReady() and os.path.ismount(file_path):
             storage_info = QtCore.QStorageInfo(file_path)
             self.volume_name = storage_info.displayName() or file_path  # Store volume name separately
             if sys.platform == "win32":

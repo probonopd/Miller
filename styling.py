@@ -4,53 +4,54 @@ from PyQt6 import QtGui, QtCore, QtWidgets
 def apply_styling(app):
     app.setStyle("Fusion")
 
-    # Load the custom fonts
-    font_paths = {
-        "regular": os.path.join(os.path.dirname(__file__), "fonts", "Inter_18pt-Regular.ttf"),
-        "bold": os.path.join(os.path.dirname(__file__), "fonts", "Inter_18pt-Bold.ttf"),
-        "italic": os.path.join(os.path.dirname(__file__), "fonts", "Inter_18pt-Italic.ttf"),
-        "bold_italic": os.path.join(os.path.dirname(__file__), "fonts", "Inter_18pt-BoldItalic.ttf"),
-    }
+    if not sys.platform == "win32":
+        # Load the custom fonts
+        font_paths = {
+            "regular": os.path.join(os.path.dirname(__file__), "fonts", "Inter-Regular.ttf"),
+            "bold": os.path.join(os.path.dirname(__file__), "fonts", "Inter-Bold.ttf"),
+            "italic": os.path.join(os.path.dirname(__file__), "fonts", "Inter-Italic.ttf"),
+            "bold_italic": os.path.join(os.path.dirname(__file__), "fonts", "Inter-BoldItalic.ttf"),
+        }
 
-    # Load each font and set it in the application
-    fonts = {}
-    missing_fonts = []
-    for style, path in font_paths.items():
-        font_id = QtGui.QFontDatabase.addApplicationFont(path)
-        if font_id == -1:
-            missing_fonts.append(style)
-        else:
-            font_families = QtGui.QFontDatabase.applicationFontFamilies(font_id)
-            if font_families:
-                fonts[style] = font_families[0]  # Store the family name
+        # Load each font and set it in the application
+        fonts = {}
+        missing_fonts = []
+        for style, path in font_paths.items():
+            font_id = QtGui.QFontDatabase.addApplicationFont(path)
+            if font_id == -1:
+                missing_fonts.append(style)
+            else:
+                font_families = QtGui.QFontDatabase.applicationFontFamilies(font_id)
+                if font_families:
+                    fonts[style] = font_families[0]  # Store the family name
 
-    # Show a dialog if any fonts are missing
-    if missing_fonts:
-        missing_fonts_str = ", ".join(missing_fonts)
-        msg_box = QtWidgets.QMessageBox()
-        msg_box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
-        msg_box.setText("Missing Fonts")
-        msg_box.setInformativeText(
-            f"Oops! It looks like the following fonts are missing: {missing_fonts_str}.\n\n"
-            "Please download the 'Inter' font family from the following link:\n"
-            "https://fonts.google.com/specimen/Inter\n\n"
-            "After downloading, place the font files in the 'fonts' directory located in the same folder as your script."
-        )
-        msg_box.setWindowTitle("Font Error")
-        msg_box.exec()
+        # Show a dialog if any fonts are missing
+        if missing_fonts:
+            missing_fonts_str = ", ".join(missing_fonts)
+            msg_box = QtWidgets.QMessageBox()
+            msg_box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+            msg_box.setText("Missing Fonts")
+            msg_box.setInformativeText(
+                f"Oops! It looks like the following fonts are missing: {missing_fonts_str}.\n\n"
+                "Please download the 'Inter' font family from the following link:\n"
+                "https://fonts.google.com/specimen/Inter\n\n"
+                "After downloading, place the font files in the 'fonts' directory located in the same folder as your script."
+            )
+            msg_box.setWindowTitle("Font Error")
+            msg_box.exec()
 
-    # Set the default font
-    if "regular" in fonts:
-        default_font = QtGui.QFont(fonts["regular"], 9)  # Use the regular font
-        app.setFont(default_font)
+        # Set the default font
+        if "regular" in fonts:
+            default_font = QtGui.QFont(fonts["regular"], 9)  # Use the regular font
+            app.setFont(default_font)
 
-    # Create font instances for bold, italic, and bold-italic
-    if "bold" in fonts:
-        bold_font = QtGui.QFont(fonts["bold"], 9, QtGui.QFont.Weight.Bold)
-    if "italic" in fonts:
-        italic_font = QtGui.QFont(fonts["italic"], 9, QtGui.QFont.Weight.Normal, True)
-    if "bold_italic" in fonts:
-        bold_italic_font = QtGui.QFont(fonts["bold_italic"], 9, QtGui.QFont.Weight.Bold, True)
+        # Create font instances for bold, italic, and bold-italic
+        if "bold" in fonts:
+            bold_font = QtGui.QFont(fonts["bold"], 9, QtGui.QFont.Weight.Bold)
+        if "italic" in fonts:
+            italic_font = QtGui.QFont(fonts["italic"], 9, QtGui.QFont.Weight.Normal, True)
+        if "bold_italic" in fonts:
+            bold_italic_font = QtGui.QFont(fonts["bold_italic"], 9, QtGui.QFont.Weight.Bold, True)
 
     # Set highlight color for selected items to blue
     palette = app.palette()

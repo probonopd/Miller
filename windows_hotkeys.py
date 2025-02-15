@@ -8,24 +8,27 @@ import win32con
 from ctypes import byref, wintypes
 from win32com.client import Dispatch
 
-from menus import shutdown # FIXME: This import does not feel clean here
+from menus import shutdown, win32_minimize_all_windows # FIXME: This import does not feel clean here
 
 class HotKeyManager:
     def __init__(self, desktop_window=None):
         self.desktop_window_hwnd = int(desktop_window.winId())
         self.user32 = ctypes.windll.user32
         self.VK_R = 0x52
+        self.VK_D = 0x44
 
         # Define hotkeys and their modifiers
         self.hotkeys = {
             'Alt+F4': (win32con.VK_F4, win32con.MOD_ALT),
-            'Meta+R' : (self.VK_R, win32con.MOD_WIN)
+            'Meta+R' : (self.VK_R, win32con.MOD_WIN),
+            'Meta+D' : (self.VK_D, win32con.MOD_WIN)
         }
 
         # Map each hotkey to its handler function
         self.actions = {
             'Alt+F4': self.handle_alt_f4,
-            'Meta+R' : self.handle_win_r
+            'Meta+R' : self.handle_win_r,
+            'Meta+D' : self.handle_win_d
         }
 
         # We'll store mappings of hotkey id to key name to ease reverse lookup
@@ -46,6 +49,10 @@ class HotKeyManager:
     def handle_win_r(self):
         print("Meta+R pressed")
         Dispatch("WScript.Shell").Run("rundll32.exe shell32.dll,#61")
+
+    def handle_win_d(self):
+        print("Meta+D pressed")
+        win32_minimize_all_windows()
 
     def register_hotkeys(self):
         print("Registering hotkeys...")
