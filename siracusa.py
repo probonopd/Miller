@@ -510,13 +510,26 @@ class FileItem(QtWidgets.QGraphicsObject):
         if sys.platform == "win32" and self.file_path.lower().endswith(".lnk" or ".url"):
             target_path = self.resolve_lnk(self.file_path)
 
+        # Quick and dirty hack but does the job for now: Open .AppImage files by executing them using WSL
+        if target_path.lower().endswith(".appimage") and sys.platform == "win32":
+            linux_path = target_path.replace("\\", "/").replace("C:", "/mnt/c")
+            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+            QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
+            success = os.system(f"wsl {linux_path}") == 0
+            if not success:
+                QtWidgets.QMessageBox.critical(None, "Error", f"Failed to open {target_path}")    
+            return
+
         self.animate_opening()
 
         if os.path.isdir(target_path):
             self.openFolderRequested.emit(target_path)
         else:
             url = QtCore.QUrl.fromLocalFile(target_path)
-            QtGui.QDesktopServices.openUrl(url)
+            result = QtGui.QDesktopServices.openUrl(url)
+            if not result:
+                QtWidgets.QMessageBox.critical(None, "Error", f"Failed to open {target_path}")
+                return
             # Set wait cursor for 15 seconds or until the application is launched as evidenced by our window no longer being the frontmost window in the z-order.
             # On Windows, this works nicely. On Linux, it remains to be seen.
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
@@ -1196,9 +1209,9 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         if criterion == "name":
             sorted_items = sorted(self.items, key=lambda x: os.path.basename(x.file_path).lower())
         elif criterion == "date":
-            sorted_items = sorted(self.items, key=lambda x: os.path.getmtime(x.file_path))
+            sorted_items = sorted(self.items, key=lambda x: os.path.getmtime(x.file_path), reverse=True)
         elif criterion == "size":
-            sorted_items = sorted(self.items, key=lambda x: os.path.getsize(x.file_path))
+            sorted_items = sorted(self.items, key=lambda x: os.path.getsize(x.file_path), reverse=True)
         elif criterion == "type":
             sorted_items = sorted(self.items, key=lambda x: os.path.splitext(x.file_path)[1].lower())
             
