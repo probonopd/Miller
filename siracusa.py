@@ -45,7 +45,7 @@ if sys.platform == "win32":
     import windows_hotkeys
     import windows_eject
 
-import getinfo, menus, fileops
+import getinfo, menus, fileops, appimage
 
 LAYOUT_FILENAME = "._layout.json"
 
@@ -278,6 +278,11 @@ class FileItem(QtWidgets.QGraphicsObject):
         file_info = QtCore.QFileInfo(file_path)
         if self.is_folder and not os.path.ismount(file_path):
             self.icon = QtGui.QIcon.fromTheme("folder")
+        elif file_info.suffix().lower() == "appimage":
+            appimage_obj = appimage.AppImage(file_path)
+            self.icon = appimage_obj.get_icon(32)
+            if self.icon is None:
+                self.icon = QtGui.QIcon.fromTheme("application-x-executable")
         else:
             self.icon = icon_provider.icon(file_info)
         icon_size = QtCore.QSize(32, 32)
@@ -513,33 +518,11 @@ class FileItem(QtWidgets.QGraphicsObject):
         if sys.platform == "win32" and self.file_path.lower().endswith(".lnk" or ".url"):
             target_path = self.resolve_lnk(self.file_path)
 
-        # Quick and dirty hack but does the job for now: Open .AppImage files (on Windows, by executing them using WSL)
         if target_path.lower().endswith(".appimage"):
-            if sys.platform == "win32":
-                linux_path = target_path.replace("\\", "/").replace("C:", "/mnt/c")
-            else:
-                linux_path = target_path
-            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-            QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
-            if sys.platform == "win32":
-                success = os.system(f"wsl {linux_path}") == 0
-            else:
-                # If "launch" command is available, let it launch the file
-                if shutil.which("launch"):
-                    success = os.system(f"launch {linux_path}") == 0
-                else:
-                    response = QtWidgets.QMessageBox.question(None, "Execute?", f"Execute {target_path}?", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
-                    if response == QtWidgets.QMessageBox.StandardButton.Yes:
-                        # Attempt to set the executable bit
-                        if not os.access(target_path, os.X_OK):
-                            QtWidgets.QMessageBox.warning(None, "Error", f"Cannot execute {target_path}.")
-                            return
-                    success = os.system(target_path) == 0
-            if not success:
-                QtWidgets.QMessageBox.critical(None, "Error", f"Failed to open {target_path}")    
+            appimage_obj = appimage.AppImage(target_path)
+            appimage_obj.launch()
             return
-
-        if os.path.isdir(target_path):
+        elif os.path.isdir(target_path):
             self.openFolderRequested.emit(target_path)
         else:
             url = QtCore.QUrl.fromLocalFile(target_path)

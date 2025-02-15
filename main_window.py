@@ -7,8 +7,8 @@ This module defines the main window (`MillerColumns`) and its functionalities,
 including file navigation, status bar updates, etc.
 """
 
-import sys
-import os
+import sys, os
+import appimage
 
 # FIXME: Import Qt like this: from PyQt6 import QtWidgets, QtGui, QtCore, QtWebEngineWidgets
 from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu, QStyle
@@ -26,11 +26,17 @@ class CustomFileSystemModel(QFileSystemModel):
     """
     Custom file system model that allows us to customize e.g., the icons being used.
     """
+
     def data(self, index, role):
         if role == Qt.ItemDataRole.DecorationRole:
+            info = self.fileInfo(index)
             if self.isDir(index):
                 # Do not use Windows folder icons but the default folder icon from the theme
                 return QIcon.fromTheme("folder")
+            elif info.suffix().lower() == 'appimage':
+                appimage_obj = appimage.AppImage(info.absoluteFilePath())
+                return appimage_obj.get_icon(16)
+
         return super().data(index, role)
 
     def style(self):
@@ -417,10 +423,15 @@ class MillerColumns(QMainWindow):
             if os.path.isdir(path):
                 self.open_folder(path)
             else:
-                try:
-                    os.startfile(path)
-                except Exception as e:
-                    QMessageBox.critical(self, "Error", f"{e}")
+                if path.lower().endswith('.appimage'):
+                    appimage_obj = appimage.AppImage(path)
+                    appimage_obj.launch()
+                    return
+                else:
+                    try:
+                        os.startfile(path)
+                    except Exception as e:
+                        QMessageBox.critical(self, "Error", f"{e}")
 
     def new_folder(self):
         """
