@@ -349,6 +349,17 @@ class FileItem(QtWidgets.QGraphicsObject):
             text_rect = QtCore.QRectF(text_x, text_y - text_height, text_width, text_height)
             painter.drawRect(text_rect)
 
+        # If the item extension is ".desktop", we read each line, find the line that starts with Icon=, and extract the icon name.
+        if os.path.splitext(self.file_path)[1].lower() == ".desktop":
+            with open(self.file_path, "r") as f:
+                for line in f:
+                    if line.startswith("Icon="):
+                        icon_name = line[5:].strip()
+                        if icon_name:
+                            self.icon = QtGui.QIcon.fromTheme(icon_name)
+                            self.pixmap = self.icon.pixmap(QtCore.QSize(32, 32))
+                            break
+
         # Draw the icon
         painter.drawPixmap(QtCore.QPointF(offset_x, offset_y), self.pixmap)
 
