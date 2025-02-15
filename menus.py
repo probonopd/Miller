@@ -20,6 +20,8 @@ def create_menus(window):
     keeping all existing actions, separators, and functionality.
     """
 
+    app = QtWidgets.QApplication.instance()
+
     # Create a custom QWidget to replace the default menu bar
     menu_widget = QtWidgets.QWidget()
     menu_layout = QtWidgets.QHBoxLayout(menu_widget)  # Use horizontal layout
@@ -111,6 +113,10 @@ def create_menus(window):
     edit_menu.addAction(window.paste_action)
     edit_menu.addSeparator()
 
+    rename_action = QtGui.QAction("Rename", window)
+    rename_action.setShortcut("F2")
+    edit_menu.addAction(rename_action)
+
     delete_action = QtGui.QAction("Delete", window)
     delete_action.setShortcut("Delete")
     edit_menu.addAction(delete_action)
@@ -131,6 +137,7 @@ def create_menus(window):
         copy_action.triggered.connect(window.copy_selected)
         cut_action.triggered.connect(window.cut_selected)
         window.paste_action.triggered.connect(window.paste_items)
+        rename_action.triggered.connect(window.rename_selected)
         delete_action.triggered.connect(window.delete_selected)
         select_all_action.triggered.connect(window.select_all)
         empty_trash_action.triggered.connect(window.empty_trash)
@@ -141,6 +148,7 @@ def create_menus(window):
         window.selectionChanged.connect(lambda: cut_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: copy_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: delete_action.setEnabled(window.has_selected_items()))
+        window.selectionChanged.connect(lambda: rename_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: empty_trash_action.setEnabled(window.has_trash_items()))
         window.selectionChanged.connect(lambda: move_to_trash_action.setEnabled(window.has_selected_items()))
         
@@ -150,6 +158,7 @@ def create_menus(window):
         copy_action.setEnabled(False)
         window.paste_action.setEnabled(False)
         delete_action.setEnabled(False)
+        rename_action.setEnabled(False)
 
     # Go menu
     window.go_menu = left_menubar.addMenu("Go")
@@ -249,10 +258,16 @@ def create_menus(window):
     view_menu = left_menubar.addMenu("View")
 
     if window.__class__.__name__ == "SpatialFilerWindow":
-        align_action = QtGui.QAction("Align to Grid")
-        align_action.setShortcut("Ctrl+G")
-        align_action.triggered.connect(window.align_to_grid)
-        view_menu.addAction(align_action)
+        # Checkbox for "Snap to Grid"
+        snap_to_grid_action = QtGui.QAction("Snap to Grid", window)
+        snap_to_grid_action.setCheckable(True)
+        snap_to_grid_action.setChecked(app.snap_to_grid)
+        snap_to_grid_action.triggered.connect(lambda: setattr(app, "snap_to_grid", snap_to_grid_action.isChecked()))
+        view_menu.addAction(snap_to_grid_action)
+        clean_up_action = QtGui.QAction("Clean Up", window)
+        clean_up_action.triggered.connect(window.clean_up)
+        view_menu.addAction(clean_up_action)
+        view_menu.addSeparator()
         sort_menu = QtWidgets.QMenu("Sort", window)
         view_menu.addMenu(sort_menu)
         sort_name = QtGui.QAction("By Name", window)

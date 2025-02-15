@@ -90,6 +90,9 @@ class MillerColumns(QMainWindow):
         Initialize the MillerColumns instance.
         """
         super().__init__()
+
+        print("MillerColumns initialized")
+
         self.setWindowTitle("Miller Columns File Manager")
         self.resize(1000, 600)  # Default size
 
@@ -221,6 +224,9 @@ class MillerColumns(QMainWindow):
         """
         Update the view with the contents of the specified parent_index.
         """
+
+        print("Updating view with parent index %s" % parent_index)
+
         if parent_index.isValid():
             for column_view in self.columns[1:]:
                 self.column_layout.removeWidget(column_view)
@@ -352,27 +358,38 @@ class MillerColumns(QMainWindow):
         self.columns.append(column_view)
 
     def on_selection_changed(self, current: QModelIndex, previous: QModelIndex):
-        """
-        Handle the selection change in the column view.
-        """
+        if not current.isValid():
+            return
+
+        selected_path = self.file_model.filePath(current)
+        print(f"Selection changed: {selected_path}")
+
         column_index = self.get_column_index(current)
-        if column_index is not None:
-            # Remove all columns to the right of the current column
-            while len(self.columns) > column_index + 1:
-                column_to_remove = self.columns.pop()
-                self.column_layout.removeWidget(column_to_remove)
-                column_to_remove.deleteLater()
+        if column_index is None:
+            print("Column index not found, returning")
+            return
 
-            # Add a new column if the selected item is a directory
-            if self.file_model.isDir(current):
-                self.add_column(current)
+        existing_paths = [self.file_model.filePath(view.rootIndex()) for view in self.columns]
+        if selected_path in existing_paths:
+            print(f"Already displaying {selected_path}, skipping column addition")
+            return
 
-            # Update current directory path if it is a valid directory
-            if self.file_model.isDir(current):
-                self.path_label.setText(self.file_model.filePath(current))
+        while len(self.columns) > column_index + 1:
+            column_to_remove = self.columns.pop()
+            print(f"Removing column for {self.file_model.filePath(column_to_remove.rootIndex())}")
+            self.column_layout.removeWidget(column_to_remove)
+            column_to_remove.deleteLater()
 
-            # Update the preview panel with the selected file's content
+        if self.file_model.isDir(current):
+            print(f"Adding new column for {selected_path}")
+            self.add_column(current)
+
+        if os.path.isfile(selected_path):
+            print(f"Updating preview for {selected_path}")
             self.update_preview_panel(current)
+        else:
+            print(f"Skipping preview update for directory: {selected_path}")
+
 
     def open_folder(self, folder_path):
         """
@@ -389,6 +406,7 @@ class MillerColumns(QMainWindow):
         """
         Open the selected items in the column view.
         """
+        print("Opening selected items")
         selected_indexes = self.columns[-1].selectedIndexes()
         if not selected_indexes:
             QMessageBox.warning(self, "No Selection", "No files or folders selected.")

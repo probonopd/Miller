@@ -27,7 +27,7 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
-* Error box saying you should not remove the drive without ejecting it first should only be shown if the cause for the removal was not that the drive was ejected by the application.
+* Why does snap_to_grid not sync across windows?
 * Get rid of open_windows completely. Instead, whenever a window is created, set an attribute with the normalized path on it. Then, whenever a window shall be opened, check if a window with that attribute already exists. This way, we can get rid of the open_windows dictionary which is not robust and may get out of sync.
 * Look into https://github.com/flacjacket/pywayland/
 
@@ -186,6 +186,11 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
                     if item and f in offsets:
                         off = offsets[f]  # This is a tuple (dx, dy)
                         new_pos = new_union_top_left + QtCore.QPointF(off[0], off[1])
+                        if app.snap_to_grid:
+                            new_pos = QtCore.QPointF(
+                                grid_width * round(new_pos.x() / grid_width),
+                                grid_height * round(new_pos.y() / grid_height)
+                            )
                         item.setPos(new_pos)
                 event.ignore()
                 return
@@ -521,7 +526,7 @@ class FileItem(QtWidgets.QGraphicsObject):
                 this_window = self.scene().views()[0].window()
                 if not this_window.isActiveWindow():
                     break
-            QtCore.QTimer.singleShot(100, lambda: QtWidgets.QApplication.restoreOverrideCursor())
+            QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
 
     def animate_opening(self):
         """Animate the item when opened: Increase size x2 and fade out, then reset."""
@@ -547,6 +552,7 @@ class FileItem(QtWidgets.QGraphicsObject):
         menu = QtWidgets.QMenu()
         open_action = menu.addAction("Open")
         info_action = menu.addAction("Get Info...")
+        rename_action = menu.addAction("Rename")
         delete_action = menu.addAction("Delete")
         menu.addSeparator()
         if self.volume_name:
@@ -565,6 +571,9 @@ class FileItem(QtWidgets.QGraphicsObject):
         elif action == info_action:
             self.show_info()
 
+        elif action == rename_action:
+            self.rename_item()
+
         elif action == delete_action:
             # Call delete_selected() from the main window
             main_window = self.scene().views()[0].window()
@@ -575,6 +584,11 @@ class FileItem(QtWidgets.QGraphicsObject):
         main_window = self.scene().views()[0].window()  # Get the main window
         if isinstance(main_window, SpatialFilerWindow):
             main_window.get_info()
+
+    def rename_item(self):
+        main_window = self.scene().views()[0].window()  # Get the main window
+        if isinstance(main_window, SpatialFilerWindow):
+            main_window.rename_selected()
 
     def eject_volume(self):
         if not self.volume_name:
@@ -612,6 +626,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         self.folder_path = folder_path
 
         self.is_desktop_window = (folder_path == QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.StandardLocation.DesktopLocation))
+
+        app.snap_to_grid = False
 
         if os.path.ismount(folder_path):
             storage_info = QtCore.QStorageInfo(folder_path)
@@ -844,6 +860,13 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def create_menus(self):
         menus.create_menus(self)
 
+    def clean_up(self):
+        """Snap items to a grid."""
+        for item in self.items:
+            grid_x = round(item.x() / grid_width)
+            grid_y = round(item.y() / grid_height)
+            item.setPos(grid_x * grid_width, grid_y * grid_height)
+
     def load_files(self):
 
         try:
@@ -958,14 +981,19 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         return layout
 
     def save_layout(self):
+        # Get the current layout dictionary.
         layout = self.get_layout()
+        # Add the app.snap_to_grid state into the layout.
+        layout["app.snap_to_grid"] = app.snap_to_grid
+
         layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
         try:
             with open(layout_file_path, "w") as f:
                 json.dump(layout, f, indent=4)
-        except:
-            pass    
-        # Blink the window title to indicate a save
+        except Exception as e:
+            print(f"Error saving layout: {e}")
+
+        # Blink the window title to indicate a save.
         # self.setWindowTitle(f"Saved: {self.windowTitle()}")
         # QtCore.QTimer.singleShot(1000, lambda: self.setWindowTitle(self.windowTitle().replace("Saved: ", "")))
 
@@ -976,6 +1004,28 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def open_folder_from_item(self, folder_path: str, spring_loaded: bool = False):
         SpatialFilerWindow.get_or_create_window(folder_path, spring_loaded)
+
+    def rename_selected(self):
+        selected_items = self.scene.selectedItems()
+        if not selected_items:
+            QtWidgets.QMessageBox.information(self, "Rename", "No items selected.")
+            return
+
+        if len(selected_items) > 1:
+            QtWidgets.QMessageBox.information(self, "Rename", "Select only one item to rename.")
+            return
+
+        item = selected_items[0]
+        new_name, ok = QtWidgets.QInputDialog.getText(self, "Rename", "New name:", QtWidgets.QLineEdit.EchoMode.Normal, item.display_name)
+        if ok and new_name:
+            new_path = os.path.join(self.folder_path, new_name)
+            try:
+                os.rename(item.file_path, new_path)
+                item.file_path = new_path
+                item.display_name = new_name
+                self.save_layout()
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", f"Error renaming {item.file_path}: {e}")
 
     def delete_selected(self):
         selected_items = self.scene.selectedItems()
@@ -1391,6 +1441,7 @@ if __name__ == "__main__":
         sys.stdout = log_console.Tee(sys.stdout, app.log_console)
         sys.stderr = log_console.Tee(sys.stderr, app.log_console)
 
+    app.snap_to_grid = False
 
     desktop = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.StandardLocation.DesktopLocation)
     # If the desktop directory does not exist, create it.

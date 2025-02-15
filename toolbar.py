@@ -11,7 +11,7 @@ def create_toolbar(window):
     toolbar = QToolBar("Navigation")
     window.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
-    home_action = QAction(QIcon.fromTheme("home"), "Home", window)
+    home_action = QAction(QIcon.fromTheme("go-home"), "Home", window)
     home_action.triggered.connect(window.go_home)
     toolbar.addAction(home_action)
 
