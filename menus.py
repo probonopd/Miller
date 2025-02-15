@@ -34,7 +34,7 @@ def create_menus(window):
     left_menubar = QtWidgets.QMenuBar()
 
     # Start Menu
-    if sys.platform == "win32":
+    if sys.platform == "win32" and window.is_desktop_window:
         start_menu = window_start_menu.StartMenu(window)
         left_menubar.addMenu(start_menu)
 
@@ -336,10 +336,13 @@ def populate_volumes(window):
     for action in window.go_menu.actions():
         if hasattr(action, "is_volume") and action.is_volume:
             window.go_menu.removeAction(action)
-
+    print("Populating volumes")
     drives = QtCore.QStorageInfo.mountedVolumes()
     # Remove all that start with anything but /mnt, /run/media, /media, /Volumes, /Volumes.localized, /net
-    drives = [drive for drive in drives if os.path.commonprefix(["/mnt", "/run/media", "/media", "/Volumes", "/Volumes.localized", "/net"]).startswith(drive.rootPath())]
+    if not sys.platform == "win32":
+        drives = [drive for drive in drives if os.path.commonprefix(["/mnt", "/run/media", "/media", "/Volumes", "/Volumes.localized", "/net"]).startswith(drive.rootPath())]
+    else:
+        drives = [drive for drive in drives if drive.isValid() and drive.isReady()]
     for drive in drives:
         drive_action = QtGui.QAction(drive.displayName(), window)
         drive_action.triggered.connect(lambda checked, d=drive.rootPath(): window.open_drive(d))

@@ -62,9 +62,9 @@ class DriveWatcher(QtCore.QThread):
     driveRemoved = QtCore.pyqtSignal(str)
 
     def run(self):
-        seen_drives = set(disk.rootPath() for disk in QtCore.QStorageInfo.mountedVolumes())
+        seen_drives = set(disk.rootPath() for disk in QtCore.QStorageInfo.mountedVolumes() if disk.isValid and disk.isReady())
         while True:
-            current_drives = set(disk.rootPath() for disk in QtCore.QStorageInfo.mountedVolumes())
+            current_drives = set(disk.rootPath() for disk in QtCore.QStorageInfo.mountedVolumes() if disk.isValid and disk.isReady())
 
             new_drives = current_drives - seen_drives
             for drive in new_drives:
@@ -908,7 +908,11 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         # Add every disk in the system
         if self.is_desktop_window:
             print("Adding disks")
+
             for disk in QtCore.QDir.drives():
+                drive_info = QtCore.QStorageInfo(disk.canonicalFilePath())
+                if not drive_info.isValid() or not drive_info.isReady():
+                    continue
                 # The name of the disk is the first part of the path, e.g. "C:" or "D:"
                 print(disk.canonicalFilePath())
                 disk_name = disk.canonicalFilePath()
