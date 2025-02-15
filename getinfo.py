@@ -118,7 +118,7 @@ class FileInfoDialog(QtWidgets.QDialog):
             st = os.stat(file_path)
             item_type = "Folder" if os.path.isdir(file_path) else (mimetypes.guess_type(file_path)[0] or "File")
 
-            mountpoints = [d.mountpoint for d in QtCore.QStorageInfo.mountedVolumes()]
+            mountpoints = [drive.rootPath() for drive in QtCore.QStorageInfo.mountedVolumes()]
             if file_path in mountpoints:
                 item_type = "Volume"
                 storage_info = QtCore.QStorageInfo(file_path)
