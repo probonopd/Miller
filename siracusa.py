@@ -308,6 +308,8 @@ class FileItem(QtWidgets.QGraphicsObject):
             self.volume_name = None
             self.display_name = os.path.basename(file_path)
 
+        self.is_trash = False
+
     def boundingRect(self) -> QtCore.QRectF:
         # Accommodate the icon and file name.
         return QtCore.QRectF(0, 0, self.width, self.height)
@@ -342,7 +344,9 @@ class FileItem(QtWidgets.QGraphicsObject):
                 if self.pixmap == None:
                     self.icon = QtGui.QIcon.fromTheme("application-x-executable")
                     self.pixmap = self.icon.pixmap(QtCore.QSize(32, 32))
-                
+            elif self.is_trash:
+                self.icon = QtGui.QIcon.fromTheme("user-trash")
+                self.pixmap = self.icon.pixmap(QtCore.QSize(32, 32))
             else:
                 file_info = QtCore.QFileInfo(self.file_path)
                 if self.is_folder and not os.path.ismount(self.file_path):
@@ -986,6 +990,18 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             if self.folder_path.lower() == os.getenv('USERPROFILE').lower():
                 folder_files = [name for name in folder_files if name.lower() not in ("desktop",)]
 
+        # Add Trash item
+        # Define Trash item position: last column before the second column starts
+        trash_x = (self.width() // grid_width) - 2  # Second last column
+        trash_y = (self.height() // grid_height) - 1  # Bottom row
+
+        trash_path = os.path.expanduser("~/.local/share/Trash/files") if sys.platform != "win32" else "C:\\$Recycle.Bin\\"
+        trash_item = FileItem(trash_path, QtCore.QPointF(trash_x * grid_width, trash_y * grid_height))
+        trash_item.display_name = "Trash"
+        trash_item.is_trash = True
+        self.items.append(trash_item)
+        self.scene.addItem(trash_item)
+
         # Append each file or folder to self.items
         for name in sorted(folder_files):
             full_path = os.path.join(self.folder_path, name)
@@ -1278,35 +1294,66 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             sorted_items = sorted(self.items, key=lambda x: os.path.getsize(x.file_path), reverse=True)
         elif criterion == "type":
             sorted_items = sorted(self.items, key=lambda x: os.path.splitext(x.file_path)[1].lower())
-        # Volumes at the top
+        # Ensure volumes are at the top
         sorted_items = sorted(sorted_items, key=lambda x: x.volume_name is not None, reverse=True)
-            
+
         occupied_positions = set()
 
+        # Identify the Trash item
+        trash_item = None
+        for item in sorted_items:
+            if getattr(item, "is_trash", False):  # Ensure 'is_trash' is a property
+                trash_item = item
+                break
+
         if self.is_desktop_window:
+            # Reserve Trash position first
+            trash_x = (self.width() // grid_width) - 1
+            trash_y = (self.height() // grid_height) - 2
+            occupied_positions.add((trash_x, trash_y))
+
             # Desktop: Move downward first, then shift left
             x = (self.width() // grid_width) - 1  # Start at rightmost column
             y = 0
+
             for item in sorted_items:
+                if item == trash_item:
+                    continue  # Skip placing Trash for now
+
                 while (x, y) in occupied_positions:
                     y += 1  # Move downward
                     if y * grid_height > self.height() - 2 * grid_height:
                         y = 0  # Reset and shift left
                         x -= 1
+
                 item.setPos(QtCore.QPointF(x * grid_width, y * grid_height))
                 occupied_positions.add((x, y))
+
+            # Place Trash at its reserved position
+            if trash_item:
+                trash_item.setPos(QtCore.QPointF(trash_x * grid_width, trash_y * grid_height))
+
         else:
             # Normal case: Move right first, then shift down
             x, y = 0, 0
             for item in sorted_items:
+                if item == trash_item:
+                    continue  # Skip placing Trash for now
+
                 while (x, y) in occupied_positions:
                     x += 1  # Move right
                     if x * grid_width > self.width() - grid_width:
                         x = 0
                         y += 1
+
                 item.setPos(QtCore.QPointF(x * grid_width, y * grid_height))
                 occupied_positions.add((x, y))
-        
+
+            # Place Trash item at the end in a separate logic
+            if trash_item:
+                occupied_positions.add((trash_x, trash_y))  # 🚀 Fix: Ensure Trash's spot is not overwritten
+                trash_item.setPos(QtCore.QPointF(trash_x * grid_width, trash_y * grid_height))
+
         self.update_scene_rect()
         self.save_layout()
 
