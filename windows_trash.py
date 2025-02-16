@@ -55,8 +55,6 @@ def empty_trash():
     else:
         print("Operation cancelled by the user.")
 
-    sys.exit(0)
-
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     empty_trash()
