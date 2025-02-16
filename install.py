@@ -149,15 +149,21 @@ DesktopNames=Spatial
             sys.exit(1)
         
         start_spatial = """#!/bin/sh
+
+# Set environment variables
 export XDG_SESSION_TYPE=wayland
-export XDG_CURRENT_DESKTOP=Spatial
-export WAYLAND_DISPLAY=wayland-0
+export XDG_CURRENT_DESKTOP=MyWaylandDE
+
+# Start the Wayland compositor in the background
+kwin_wayland --xwayland &
+
+# Launch the desktop environment's session manager or panel
 @@@PLACEHOLDER@@@
 """
-        start_spatial = start_spatial.replace("@@@PLACEHOLDER@@@", os.path.join(VENV_DIR, "bin", "python") + " " + SIRACUSA_SCRIPT)
+        start_spatial = start_spatial.replace("@@@PLACEHOLDER@@@", os.path.abspath(os.path.join(VENV_DIR, "bin", "python")) + " " +  os.path.abspath(SIRACUSA_SCRIPT))
         with open("/usr/bin/startspatial-wayland", "w") as f:
             f.write(start_spatial)
-        os.chmod("/usr/bin/start-spatial.sh", 0o755)
+        os.chmod("/usr/bin/startspatial-wayland", 0o755)
         print(f"{timestamp()} ✅ Desktop session file created successfully!")
 
     # Run siracusa.py
