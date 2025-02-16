@@ -125,7 +125,6 @@ def main():
                     f.write(response.content)
                 print(f"{timestamp()} Downloaded '{filename}' from {url}")
             print(f"{timestamp()} Downloaded fonts to 'fonts/'")
-    
     # If we are on Linux, create /usr/share/wayland-sessions/ and create .desktop file that runs start-siracusa.sh
     if not sys.platform == "win32":
         print(f"{timestamp()} Creating desktop entry for Wayland...")
@@ -139,11 +138,13 @@ DesktopNames=Spatial
 
         # Check whether /usr/share/wayland-sessions/ exists or /usr/local/share/wayland-sessions/ exists and create the file there if it does
         if os.path.exists("/usr/share/wayland-sessions/"):
-            with open("/usr/share/wayland-sessions/spatial.desktop", "w") as f:
+            with open("spatial.desktop", "w") as f:
                 f.write(desktop_entry)
+            os.system("sudo mv spatial.desktop /usr/share/wayland-sessions/spatial.desktop")
         elif os.path.exists("/usr/local/share/wayland-sessions/"):
-            with open("/usr/local/share/wayland-sessions/spatial.desktop", "w") as f:
+            with open("spatial.desktop", "w") as f:
                 f.write(desktop_entry)
+            os.system("sudo mv spatial.desktop /usr/local/share/wayland-sessions/spatial.desktop")
         else:
             print(f"{timestamp()} ❌ Error: Could not find /usr/share/wayland-sessions/ or /usr/local/share/wayland-sessions/")
             sys.exit(1)
@@ -161,9 +162,10 @@ kwin_wayland --xwayland &
 @@@PLACEHOLDER@@@
 """
         start_spatial = start_spatial.replace("@@@PLACEHOLDER@@@", os.path.abspath(os.path.join(VENV_DIR, "bin", "python")) + " " +  os.path.abspath(SIRACUSA_SCRIPT))
-        with open("/usr/bin/startspatial-wayland", "w") as f:
+        with open("startspatial-wayland", "w") as f:
             f.write(start_spatial)
-        os.chmod("/usr/bin/startspatial-wayland", 0o755)
+        os.chmod("startspatial-wayland", 0o755)
+        os.system("sudo mv startspatial-wayland /usr/bin/startspatial-wayland")
         print(f"{timestamp()} ✅ Desktop session file created successfully!")
 
     # Run siracusa.py
