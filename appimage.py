@@ -88,14 +88,18 @@ class AppImage:
         # On Windows, this works nicely. On Linux, it remains to be seen.
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
         start_time = time.time()
-        this_window = QtWidgets.QApplication.activeWindow()
-        while time.time() - start_time < 15:
-            QtWidgets.QApplication.processEvents()
+        try:
             this_window = QtWidgets.QApplication.activeWindow()
-            if not this_window.isActiveWindow():
-                break
-        QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
-
+        except Exception:
+            this_window = None
+            # We end up here e.g., on Linux, if the window is not active because a dialog is open.
+        if this_window:
+            while time.time() - start_time < 15:
+                QtWidgets.QApplication.processEvents()
+                this_window = QtWidgets.QApplication.activeWindow()
+                if not this_window.isActiveWindow():
+                    break
+            QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
 
 def main():
     app = QtWidgets.QApplication(sys.argv)

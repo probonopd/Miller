@@ -10,11 +10,13 @@ def main():
     timestamp = lambda: time.strftime("[%H:%M:%S]", time.localtime())
     print(f"{timestamp()} Starting setup process...")
 
+    use_system_pyqt = False
+
     # Ensure pip is installed on systems that require a system-level install
     print(f"{timestamp()} Install pip...")
     if os.path.exists("/etc/debian_version"):
         print(f"{timestamp()} Installing pip for Debian/Ubuntu...")
-        if os.system("sudo apt update") != 0 or os.system("sudo apt install -y python3-pip") != 0:
+        if os.system("sudo apt update") != 0 or os.system("sudo apt install -y python3-pip python3-requests") != 0:
             print(f"{timestamp()} ❌ Error: Failed to install pip on Debian/Ubuntu.")
             sys.exit(1)
     elif os.path.exists("/etc/redhat-release"):
@@ -39,8 +41,16 @@ def main():
             sys.exit(1)
     elif os.path.exists("/etc/alpine-release"):
         print(f"{timestamp()} Installing pip for Alpine...")
-        if os.system("sudo apk add py3-pip") != 0:
+        use_system_pyqt = True
+        if os.system("sudo apk add py3-pip py3-requests py3-pyqt6") != 0:
             print(f"{timestamp()} ❌ Error: Failed to install pip on Alpine.")
+            sys.exit(1)
+    # Chimera Linunx
+    elif os.path.exists("/etc/chimera-release"):
+        use_system_pyqt = True
+        print(f"{timestamp()} Installing pip for Chimera...")
+        if os.system("apk add git python-pip python-requests python-pyqt6") != 0:
+            print(f"{timestamp()} ❌ Error: Failed to install pip on Chimera.")
             sys.exit(1)
     elif sys.platform == "darwin":
         print(f"{timestamp()} Installing pip for MacOS...")
@@ -56,7 +66,17 @@ def main():
     # Create virtual environment if needed
     if not os.path.exists(VENV_DIR):
         print(f"{timestamp()} Creating virtual environment...")
-        venv.create(VENV_DIR, with_pip=True)
+        venv.create(VENV_DIR, with_pip=True, system_site_packages=True)
+        if use_system_pyqt:
+            # Copy PyQt6 from system site-packages to virtual environment
+            print(f"{timestamp()} Copying PyQt6 from system site-packages to virtual environment...")
+            site_packages = sys.path[-1]
+            pyqt6_dir = os.path.join(site_packages, "PyQt6")
+            if not os.path.exists(pyqt6_dir):
+                print(f"{timestamp()} ❌ Error: PyQt6 not found in system site-packages.")
+                sys.exit(1)
+            subprocess.run(["cp", "-r", pyqt6_dir, os.path.join(VENV_DIR, "lib", "python3.9", "site-packages")])
+            print(f"{timestamp()} ✅ PyQt6 copied successfully!")
         print(f"{timestamp()} Virtual environment created at {VENV_DIR}.")
     else:
         print(f"{timestamp()} Virtual environment already exists.")
@@ -65,6 +85,7 @@ def main():
     pip_path = os.path.join(VENV_DIR, "Scripts", "pip.exe") if sys.platform == "win32" else os.path.join(VENV_DIR, "bin", "pip")
     if not os.path.exists(pip_path):
         print(f"{timestamp()} Error: pip is missing in the virtual environment.")
+        print(f"{timestamp()} Please delete the 'venv' directory and run the script again.")
         sys.exit(1)
     
     print(f"{timestamp()} Installing dependencies from {REQUIREMENTS_FILE}...")
