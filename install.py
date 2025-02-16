@@ -148,12 +148,10 @@ DesktopNames=Spatial
             print(f"{timestamp()} ❌ Error: Could not find /usr/share/wayland-sessions/ or /usr/local/share/wayland-sessions/")
             sys.exit(1)
         
-        # Create start-spatial.sh like start-plasma.sh
         start_spatial = """#!/bin/sh
 export XDG_SESSION_TYPE=wayland
 export XDG_CURRENT_DESKTOP=Spatial
 export WAYLAND_DISPLAY=wayland-0
-kwin_wayland &
 @@@PLACEHOLDER@@@
 """
         start_spatial = start_spatial.replace("@@@PLACEHOLDER@@@", os.path.join(VENV_DIR, "bin", "python") + " " + SIRACUSA_SCRIPT)
