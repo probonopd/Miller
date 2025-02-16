@@ -79,6 +79,44 @@ def main():
     if result.returncode != 0:
         print(f"{timestamp()} ❌ Error: Installation failed. Details:\n{result.stderr}")
         sys.exit(1)
+
+
+    # If we are on Linux, create /usr/share/wayland-sessions/ and create .desktop file that runs start-siracusa.sh
+    if not sys.platform == "win32":
+        print(f"{timestamp()} Creating desktop entry for Wayland...")
+        desktop_entry = """[Desktop Entry]
+Name=Spatial
+Comment=Spatial Desktop Environment
+Exec=/usr/bin/start-siracusa.sh
+Type=Application
+DesktopNames=Spatial
+"""
+
+        # Check whether /usr/share/wayland-sessions/ exists or /usr/local/share/wayland-sessions/ exists and create the file there if it does
+        if os.path.exists("/usr/share/wayland-sessions/"):
+            with open("/usr/share/wayland-sessions/spatial.desktop", "w") as f:
+                f.write(desktop_entry)
+        elif os.path.exists("/usr/local/share/wayland-sessions/"):
+            with open("/usr/local/share/wayland-sessions/spatial.desktop", "w") as f:
+                f.write(desktop_entry)
+        else:
+            print(f"{timestamp()} ❌ Error: Could not find /usr/share/wayland-sessions/ or /usr/local/share/wayland-sessions/")
+            sys.exit(1)
+        
+        # Create start-spatial.sh like start-plasma.sh
+        start_spatial = """#!/bin/sh
+export XDG_SESSION_TYPE=wayland
+export XDG_CURRENT_DESKTOP=Spatial
+export WAYLAND_DISPLAY=wayland-0
+kwin_wayland &
+@@@PLACEHOLDER@@@
+"""
+        start_spatial = start_spatial.replace("@@@PLACEHOLDER@@@", os.path.join(VENV_DIR, "bin", "python") + " " + SIRACUSA_SCRIPT)
+        with open("/usr/bin/start-spatial.sh", "w") as f:
+            f.write(start_spatial)
+        os.chmod("/usr/bin/start-spatial.sh", 0o755)
+        print(f"{timestamp()} ✅ Desktop entry created successfully!")
+
     print(f"{timestamp()} ✅ Installation completed successfully!")
 
     if not os.path.exists("icons/elementary-xfce"):
