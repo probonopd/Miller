@@ -14,7 +14,7 @@ def main():
     print(f"{timestamp()} Install pip...")
     if os.path.exists("/etc/debian_version"):
         print(f"{timestamp()} Installing pip for Debian/Ubuntu...")
-        if os.system("sudo apt update") != 0 or os.system("sudo apt install -y python3-pip python3-requests") != 0:
+        if os.system("sudo apt update") != 0 or os.system("sudo apt install -y python3-pip python3-requests python3-venv") != 0:
             print(f"{timestamp()} ❌ Error: Failed to install pip on Debian/Ubuntu.")
             sys.exit(1)
     elif os.path.exists("/etc/redhat-release"):
