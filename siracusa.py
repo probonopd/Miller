@@ -293,7 +293,13 @@ class FileItem(QtWidgets.QGraphicsObject):
                 self.display_name = self.volume_name
         elif sys.platform != "win32" and os.path.splitext(file_path)[1].lower() == (".desktop"):
             self.volume_name = None
-            self.display_name = os.path.basename(file_path).rsplit(".", 1)[0]
+            with open(self.file_path, "r") as f:
+                self.display_name = os.path.basename(file_path)
+                for line in f:
+                    if line.startswith("Name="):
+                        print(f"Name line found:", line)
+                        self.display_name = line[5:].strip()
+                        break
         else:
             self.volume_name = None
             self.display_name = os.path.basename(file_path)
