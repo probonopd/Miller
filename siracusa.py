@@ -1531,6 +1531,9 @@ if __name__ == "__main__":
     desktop_window.move(screen.geometry().x(), screen.geometry().y())
     desktop_window.resize(screen.geometry().width(), screen.geometry().height())
     desktop_window.statusBar().hide()
+    # If no saved layout is found for the desktop window, sort items by name
+    if not desktop_window.layout_data:
+        desktop_window.sort_items("name")
     # Set the background color of the desktop window to gray
     desktop_window.view.setBackgroundBrush(QtGui.QBrush(QtGui.QColor(128, 128, 128)))
     # If we are running on X11, set the desktop window to be the root window
