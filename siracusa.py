@@ -276,25 +276,11 @@ class FileItem(QtWidgets.QGraphicsObject):
             self.setPos(pos)
         self.is_folder = os.path.isdir(file_path)
 
-        # FIXME: By moving the icon logic to the FileItem paint method, we can possibly increase performance by only loading the icon when needed.
-        file_info = QtCore.QFileInfo(file_path)
-        if self.is_folder and not os.path.ismount(file_path):
-            self.icon = QtGui.QIcon.fromTheme("folder")
-        elif file_info.suffix().lower() == "appimage":
-            appimage_obj = appimage.AppImage(file_path)
-            self.icon = appimage_obj.get_icon(32)
-            if self.icon is None:
-                self.icon = QtGui.QIcon.fromTheme("application-x-executable")
-        else:
-            self.icon = icon_provider.icon(file_info)
-        icon_size = QtCore.QSize(32, 32)
-        self.pixmap = self.icon.pixmap(icon_size)
-        if self.pixmap.width() < icon_size.width() or self.pixmap.height() < icon_size.height():
-            self.pixmap = self.pixmap.scaled(icon_size, QtCore.Qt.AspectRatioMode.KeepAspectRatio, QtCore.Qt.TransformationMode.SmoothTransformation)
-
         self.font = QtGui.QFont()
         self.font.setPointSize(8)
 
+        self.pixmap = None # Will be populated on first paint
+        self.icon = None # Will be populated on first paint
         self.drag_start_position = None
 
         mountpoints = [drive.rootPath() for drive in QtCore.QStorageInfo.mountedVolumes()]
@@ -305,6 +291,9 @@ class FileItem(QtWidgets.QGraphicsObject):
                 self.display_name = self.volume_name.replace("/", "\\")
             else:
                 self.display_name = self.volume_name
+        elif sys.platform != "win32" and os.path.splitext(file_path)[1].lower() == (".desktop"):
+            self.volume_name = None
+            self.display_name = os.path.basename(file_path).rsplit(".", 1)[0]
         else:
             self.volume_name = None
             self.display_name = os.path.basename(file_path)
@@ -314,6 +303,56 @@ class FileItem(QtWidgets.QGraphicsObject):
         return QtCore.QRectF(0, 0, self.width, self.height)
 
     def paint(self, painter: QtGui.QPainter, option: QtWidgets.QStyleOptionGraphicsItem, widget=None):
+
+        if not self.pixmap:
+            # If the item extension is ".desktop", we read each line, find the line that starts with Icon=, and extract the icon name.
+            if os.path.splitext(self.file_path)[1].lower() == ".desktop":
+                with open(self.file_path, "r") as f:
+                    for line in f:
+                        if line.startswith("Icon="):
+                            print(f"Icon line found:", line)
+                            icon_value = line[5:].strip()
+                            break
+                    if icon_value:
+                        if icon_value.startswith("/"):
+                            # If the icon name is an absolute path, use it directly
+                            self.icon = QtGui.QIcon(icon_value)
+                            print(f"Icon found at absolute path:", icon_value)
+                        elif QtGui.QIcon.hasThemeIcon(icon_value):
+                            self.icon = QtGui.QIcon.fromTheme(icon_value)
+                            print(f"Icon found in theme:", icon_value)
+                        if not self.icon:
+                            # Look for a file with the same name as the icon name and .png or .svg or .xpm in /usr/share/pixmaps and /usr/local/share/pixmaps
+                            for path in ["/usr/share/pixmaps", "/usr/local/share/pixmaps"]:
+                                for ext in [".png", ".svg", ".xpm"]:
+                                    icon_path = os.path.join(path, icon_value + ext)
+                                    if os.path.exists(icon_path):
+                                        self.icon = QtGui.QIcon(icon_path)
+                                        print(f"Icon found at:", icon_path)
+                                        break
+                if self.icon:
+                    self.pixmap = self.icon.pixmap(QtCore.QSize(32, 32))
+                if self.pixmap == None:
+                    self.icon = QtGui.QIcon.fromTheme("application-x-executable")
+                    self.pixmap = self.icon.pixmap(QtCore.QSize(32, 32))
+                    print(f"Icon not found, using default icon")
+                
+            else:
+                file_info = QtCore.QFileInfo(self.file_path)
+                if self.is_folder and not os.path.ismount(self.file_path):
+                    self.icon = QtGui.QIcon.fromTheme("folder")
+                elif file_info.suffix().lower() == "appimage":
+                    appimage_obj = appimage.AppImage(self.file_path)
+                    self.icon = appimage_obj.get_icon(32)
+                    if self.icon is None:
+                        self.icon = QtGui.QIcon.fromTheme("application-x-executable")
+                else:
+                    self.icon = icon_provider.icon(file_info)
+                icon_size = QtCore.QSize(32, 32)
+                self.pixmap = self.icon.pixmap(icon_size)
+                if self.pixmap.width() < icon_size.width() or self.pixmap.height() < icon_size.height():
+                    self.pixmap = self.pixmap.scaled(icon_size, QtCore.Qt.AspectRatioMode.KeepAspectRatio, QtCore.Qt.TransformationMode.SmoothTransformation)
+        
         # Ensure offsets are always defined
         pix_w = self.pixmap.width()
         pix_h = self.pixmap.height()
@@ -348,17 +387,6 @@ class FileItem(QtWidgets.QGraphicsObject):
             # TODO: Set different pen if user clicked on the text
             text_rect = QtCore.QRectF(text_x, text_y - text_height, text_width, text_height)
             painter.drawRect(text_rect)
-
-        # If the item extension is ".desktop", we read each line, find the line that starts with Icon=, and extract the icon name.
-        if os.path.splitext(self.file_path)[1].lower() == ".desktop":
-            with open(self.file_path, "r") as f:
-                for line in f:
-                    if line.startswith("Icon="):
-                        icon_name = line[5:].strip()
-                        if icon_name:
-                            self.icon = QtGui.QIcon.fromTheme(icon_name)
-                            self.pixmap = self.icon.pixmap(QtCore.QSize(32, 32))
-                            break
 
         # Draw the icon
         painter.drawPixmap(QtCore.QPointF(offset_x, offset_y), self.pixmap)

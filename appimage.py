@@ -49,7 +49,8 @@ class AppImage:
             return None
         pixmap = QtGui.QPixmap()
         if not pixmap.loadFromData(self.icon_data):
-            return None
+            icon = QtGui.QIcon.fromTheme("application-x-executable")
+            return icon.pixmap(size, size)
         return QtGui.QIcon(pixmap.scaled(size, size, QtCore.Qt.AspectRatioMode.KeepAspectRatio, QtCore.Qt.TransformationMode.SmoothTransformation))
     
     def launch(self):
