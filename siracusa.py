@@ -308,6 +308,7 @@ class FileItem(QtWidgets.QGraphicsObject):
             # If the item extension is ".desktop", we read each line, find the line that starts with Icon=, and extract the icon name.
             if os.path.splitext(self.file_path)[1].lower() == ".desktop":
                 with open(self.file_path, "r") as f:
+                    icon_value = None
                     for line in f:
                         if line.startswith("Icon="):
                             print(f"Icon line found:", line)

@@ -85,9 +85,9 @@ def setup_icon_theme():
     # qicon_instance = QtGui.QIcon()
     QtGui.QIcon.setThemeSearchPaths([icon_theme_path])
     QtGui.QIcon.setThemeName("elementary-xfce")
-
-    # Fallback hicolor theme from /usr/share/icons or /usr/local/share/icons, if available
-    QtGui.QIcon.setFallbackSearchPaths(QtGui.QIcon.themeSearchPaths() + ["/usr/share/icons", "/usr/local/share/icons"])
+    available_fallback_themes = [d for d in os.listdir("/usr/share/icons") if os.path.isdir(os.path.join("/usr/share/icons", d))]
+    print(f"Available fallback themes: {available_fallback_themes}")
+    QtGui.QIcon.setThemeSearchPaths(QtGui.QIcon.themeSearchPaths() + ["/usr/share/icons", "/usr/local/share/icons"] + [os.path.join("/usr/share/icons", d) for d in available_fallback_themes])
     QtGui.QIcon.setFallbackThemeName("hicolor")
 
 if __name__ == "__main__":
