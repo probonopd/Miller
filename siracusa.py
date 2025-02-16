@@ -555,6 +555,12 @@ class FileItem(QtWidgets.QGraphicsObject):
     def open_item(self):
         """Opens a folder or launches a file."""
 
+        def close_if_modifier_key_pressed():
+            modifiers = QtWidgets.QApplication.keyboardModifiers()
+            if self.scene().views() and self.scene().views()[0].window():
+                if modifiers & QtCore.Qt.KeyboardModifier.ShiftModifier and not self.scene().views()[0].window().is_desktop_window:
+                    self.scene().views()[0].window().close()
+
         self.animate_opening()
 
         # Special case: On Windows, .lnk files are shortcuts to files or folders.
@@ -564,26 +570,31 @@ class FileItem(QtWidgets.QGraphicsObject):
 
         if target_path.lower().endswith(".appimage"):
             appimage_obj = appimage.AppImage(target_path)
-            appimage_obj.launch()
+            success = appimage_obj.launch()
+            if success:
+                close_if_modifier_key_pressed()
             return
         elif os.path.isdir(target_path):
             self.openFolderRequested.emit(target_path)
+            close_if_modifier_key_pressed()
         else:
             url = QtCore.QUrl.fromLocalFile(target_path)
             result = QtGui.QDesktopServices.openUrl(url)
             if not result:
                 QtWidgets.QMessageBox.critical(None, "Error", f"Failed to open {target_path}")
                 return
-            # Set wait cursor for 15 seconds or until the application is launched as evidenced by our window no longer being the frontmost window in the z-order.
-            # On Windows, this works nicely. On Linux, it remains to be seen.
-            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
-            start_time = time.time()
-            while time.time() - start_time < 15:
-                QtWidgets.QApplication.processEvents()
-                this_window = self.scene().views()[0].window()
-                if not this_window.isActiveWindow():
-                    break
-            QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
+            else:
+                close_if_modifier_key_pressed()
+                # Set wait cursor for 15 seconds or until the application is launched as evidenced by our window no longer being the frontmost window in the z-order.
+                # On Windows, this works nicely. On Linux, it remains to be seen.
+                QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CursorShape.WaitCursor)
+                start_time = time.time()
+                while time.time() - start_time < 15:
+                    QtWidgets.QApplication.processEvents()
+                    this_window = self.scene().views()[0].window()
+                    if not this_window.isActiveWindow():
+                        break
+                QtCore.QTimer.singleShot(5, lambda: QtWidgets.QApplication.restoreOverrideCursor())
 
     def animate_opening(self):
         """Animate the item when opened: Increase size x2 and fade out, then reset."""

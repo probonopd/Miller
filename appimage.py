@@ -63,10 +63,12 @@ class AppImage:
             if sys.platform == "win32":
                 self.set_wait_cursor_until_launched()
                 success = os.system(f"wsl {linux_path}") == 0
+                return success
             else:
                 # If "launch" command is available, let it launch the file
                 if shutil.which("launch"):
                     success = os.system(f"launch {linux_path}") == 0
+                    return success
                 else:
                     if not os.access(self.path, os.X_OK):
                         response = QtWidgets.QMessageBox.question(None, "Execute?", f"Execute {self.path}?", QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
@@ -79,9 +81,10 @@ class AppImage:
                                 return
                     self.set_wait_cursor_until_launched()
                     success = os.system(self.path) == 0
+                    return success
             if not success:
                 QtWidgets.QMessageBox.critical(None, "Error", f"Failed to open {self.path}")    
-            return
+                return False
     
     def set_wait_cursor_until_launched(self):
         # Set wait cursor for 15 seconds or until the application is launched as evidenced by our window no longer being the frontmost window in the z-order.
