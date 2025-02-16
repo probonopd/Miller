@@ -317,17 +317,14 @@ class FileItem(QtWidgets.QGraphicsObject):
                     icon_value = None
                     for line in f:
                         if line.startswith("Icon="):
-                            print(f"Icon line found:", line)
                             icon_value = line[5:].strip()
                             break
                     if icon_value:
                         if icon_value.startswith("/"):
                             # If the icon name is an absolute path, use it directly
                             self.icon = QtGui.QIcon(icon_value)
-                            print(f"Icon found at absolute path:", icon_value)
                         elif QtGui.QIcon.hasThemeIcon(icon_value):
                             self.icon = QtGui.QIcon.fromTheme(icon_value)
-                            print(f"Icon found in theme:", icon_value)
                         if not self.icon:
                             # Look for a file with the same name as the icon name and .png or .svg or .xpm in /usr/share/pixmaps and /usr/local/share/pixmaps
                             for path in ["/usr/share/pixmaps", "/usr/local/share/pixmaps"]:
@@ -335,14 +332,12 @@ class FileItem(QtWidgets.QGraphicsObject):
                                     icon_path = os.path.join(path, icon_value + ext)
                                     if os.path.exists(icon_path):
                                         self.icon = QtGui.QIcon(icon_path)
-                                        print(f"Icon found at:", icon_path)
                                         break
                 if self.icon:
                     self.pixmap = self.icon.pixmap(QtCore.QSize(32, 32))
                 if self.pixmap == None:
                     self.icon = QtGui.QIcon.fromTheme("application-x-executable")
                     self.pixmap = self.icon.pixmap(QtCore.QSize(32, 32))
-                    print(f"Icon not found, using default icon")
                 
             else:
                 file_info = QtCore.QFileInfo(self.file_path)
