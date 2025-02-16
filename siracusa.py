@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+
+# A file manager in Python?
+# "These days I prefer programming in Python... it's beautiful, exppressive, and simple" - Andy Hertzfeld, https://youtu.be/kqm7ahl2ZYg?feature=shared&t=3705
+
 """
 A spatial file manager (“Siracusa style spatial Filer) implemented in PyQt6.
 Features:

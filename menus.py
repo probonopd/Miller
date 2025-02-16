@@ -316,6 +316,11 @@ def create_menus(window):
 
         # "Windows" menu for Windows users showing all windows
         if sys.platform == "win32":
+
+            import windows_volume
+            volume_menu = windows_volume.VolumeMenu(window)
+            right_menubar.addMenu(volume_menu)
+
             windows_menu = QtWidgets.QMenu(window)
             windows_menu.setTitle("Windows")
             right_menubar.addMenu(windows_menu)
