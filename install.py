@@ -159,6 +159,8 @@ exoort WAYLAND_DISPLAY=wayland-0
 # Start the Wayland compositor in the background
 kwin_wayland --xwayland &
 
+sleep 1
+
 # Launch the desktop environment's session manager or panel
 @@@PLACEHOLDER@@@
 """
