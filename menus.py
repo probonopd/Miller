@@ -520,8 +520,6 @@ def win32_populate_windows_menu(window, windows_menu, group_by_icon=False):
         else:
             window_actions.append(action)
 
-
-
     # Create submenus for windows with the same icon (optional)
     if group_by_icon:
         for icon_key, actions in icon_groups.items():
@@ -536,6 +534,8 @@ def win32_populate_windows_menu(window, windows_menu, group_by_icon=False):
                 windows_menu.addMenu(submenu)
             else:
                 window_actions.append(actions[0])
+    else:
+        window_actions.extend([action for actions in icon_groups.values() for action in actions])
 
     # Add remaining single-window actions, even if grouping is off
     for action in window_actions:
