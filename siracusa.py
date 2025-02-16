@@ -31,10 +31,10 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
-* By moving the icon logic to the FileItem paint method, we can possibly increase performance by only loading the icon when needed
 * Why does snap_to_grid not sync across windows?
 * Get rid of open_windows registry completely. Instead, whenever a window is created, set an attribute with the normalized path on it. Then, whenever a window shall be opened, check if a window with that attribute already exists. This way, we can get rid of the open_windows dictionary which is not robust and may get out of sync.
-* Look into https://github.com/flacjacket/pywayland/
+* Incorporate fake windows for Wayland absolute positioning
+* Implement emptying the Trash?
 
 FOR TESTING:
 * Windows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
@@ -49,6 +49,7 @@ if sys.platform == "win32":
     import windows_struts
     import windows_hotkeys
     import windows_eject
+    import windows_trash
 
 import getinfo, menus, fileops, appimage
 
@@ -714,6 +715,9 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             self.volume_name = None
             self.setWindowTitle(os.path.basename(folder_path))
 
+        if self.windowTitle() == "" or self.windowTitle() == None:
+            self.setWindowTitle(" ")
+
         self.setGeometry(100, 100, 800, 600)
         self.spring_loaded = False  # will be set True if opened via spring–load
 
@@ -914,25 +918,28 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         return False
     
     def move_to_trash(self):
-        # Use file operation thread to move selected items to Trash.
-        QtWidgets.QMessageBox.information(self, "Move to Trash", "Not implemented yet.")
+        if sys.platform == "win32":
+            windows_trash.empty_recycle_bin()
+        else:
+            # Use file operation thread to move selected items to Trash.
+            QtWidgets.QMessageBox.information(self, "Move to Trash", "Not implemented yet.")
 
     def empty_trash(self):
         """Delete all files in the Trash folder."""
         if sys.platform == "win32":
-            QtWidgets.QMessageBox.information(self, "Empty Trash", "Not implemented yet.")
+            windows_trash.empty_trash()
         else:
             trash_dir = os.path.expanduser("~/.local/share/Trash/files")
-        try:
-            for file in os.listdir(trash_dir):
-                file_path = os.path.join(trash_dir, file)
-                if os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-                else:
-                    os.remove(file_path)
-            QtWidgets.QMessageBox.information(self, "Trash", "Trash emptied successfully.")
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Error", f"Failed to empty trash: {e}")
+            try:
+                for file in os.listdir(trash_dir):
+                    file_path = os.path.join(trash_dir, file)
+                    if os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                    else:
+                        os.remove(file_path)
+                QtWidgets.QMessageBox.information(self, "Trash", "Trash emptied successfully.")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", f"Failed to empty trash: {e}")
 
     def create_menus(self):
         menus.create_menus(self)

@@ -17,7 +17,7 @@ from PyQt6.QtGui import QFileSystemModel, QAction, QPixmap, QDrag, QCursor, QIco
 import mimetypes
 if sys.platform == 'win32':
     from windows_integration import show_context_menu
-    import windows_file_operations
+    import windows_file_operations, windows_trash
 
 import menus, toolbar, status_bar, getinfo
 
@@ -573,11 +573,21 @@ class MillerColumns(QMainWindow):
             go_menu.addAction(drive_action)
 
     def empty_trash(self):
-        """
-        Empty the trash.
-        """
-        trash_dir = QDir.homePath() + '/.local/share/Trash/files/'
-        # Implementation to empty trash
+        """Delete all files in the Trash folder."""
+        if sys.platform == "win32":
+            windows_trash.empty_trash()
+        else:
+            trash_dir = os.path.expanduser("~/.local/share/Trash/files")
+            try:
+                for file in os.listdir(trash_dir):
+                    file_path = os.path.join(trash_dir, file)
+                    if os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+                    else:
+                        os.remove(file_path)
+                QtWidgets.QMessageBox.information(self, "Trash", "Trash emptied successfully.")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", f"Failed to empty trash: {e}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

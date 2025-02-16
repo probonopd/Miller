@@ -126,11 +126,9 @@ def create_menus(window):
     edit_menu.addAction(select_all_action)
 
     empty_trash_action = QtGui.QAction("Empty Trash", window)
-    empty_trash_action.setEnabled(False)
     edit_menu.addAction(empty_trash_action)
 
     move_to_trash_action = QtGui.QAction("Move to Trash", window)
-    move_to_trash_action.setEnabled(False)
     edit_menu.addAction(move_to_trash_action)
 
     if isinstance(window, QtWidgets.QMainWindow) and hasattr(window, 'selectionChanged'):
@@ -149,7 +147,7 @@ def create_menus(window):
         window.selectionChanged.connect(lambda: copy_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: delete_action.setEnabled(window.has_selected_items()))
         window.selectionChanged.connect(lambda: rename_action.setEnabled(window.has_selected_items()))
-        window.selectionChanged.connect(lambda: empty_trash_action.setEnabled(window.has_trash_items()))
+        # window.selectionChanged.connect(lambda: empty_trash_action.setEnabled(window.has_trash_items()))
         window.selectionChanged.connect(lambda: move_to_trash_action.setEnabled(window.has_selected_items()))
         
         open_action.setEnabled(False)
