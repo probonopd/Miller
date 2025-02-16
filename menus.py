@@ -11,7 +11,7 @@ import os, sys, subprocess, time
 from PyQt6 import QtGui, QtCore, QtWidgets
 
 if sys.platform == "win32":
-    import win32gui, win32con # For managing windows
+    import win32gui, win32con, win32ui # For managing windows
     import window_start_menu
 
 def create_menus(window):
@@ -442,6 +442,7 @@ def win32_populate_windows_menu(window, windows_menu):
         if title != "Desktop":
             action = windows_menu.addAction(title)
             action.triggered.connect(lambda checked, hwnd=hwnd: win32_restore_window(hwnd))
+            action.setIcon(win32_get_icon_for_hwnd(hwnd))
             windows_menu.addAction(action)
     windows_menu.addSeparator()
     # "Show Desktop" action
@@ -466,3 +467,28 @@ def win32_restore_window(hwnd):
         win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
     win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
     win32gui.SetForegroundWindow(hwnd)
+
+def win32_get_icon_for_hwnd(hwnd, size=16):
+    """Get the icon for a window by its handle."""
+    hicon = win32gui.SendMessage(hwnd, win32con.WM_GETICON, win32con.ICON_SMALL, 0)
+    if not hicon:
+        hicon = win32gui.GetClassLong(hwnd, win32con.GCL_HICON)
+    hdc_screen = win32gui.GetDC(0)
+    hdc = win32ui.CreateDCFromHandle(hdc_screen)
+    mem_dc = hdc.CreateCompatibleDC()
+    hbmp = win32ui.CreateBitmap()
+    hbmp.CreateCompatibleBitmap(hdc, size, size)
+    mem_dc.SelectObject(hbmp)
+    
+    win32gui.DrawIconEx(mem_dc.GetSafeHdc(), 0, 0, hicon, size, size, 0, None, win32con.DI_NORMAL)
+    bmpinfo = hbmp.GetInfo()
+    bmp_bytes = hbmp.GetBitmapBits(True)
+    
+    qt_image = QtGui.QImage(bmp_bytes, bmpinfo["bmWidth"], bmpinfo["bmHeight"], bmpinfo["bmWidthBytes"], QtGui.QImage.Format.Format_ARGB32)
+    pixmap = QtGui.QPixmap.fromImage(qt_image)
+    
+    mem_dc.DeleteDC()
+    win32gui.ReleaseDC(0, hdc_screen)
+    win32gui.DeleteObject(hbmp.GetHandle())
+    
+    return QtGui.QIcon(pixmap)
