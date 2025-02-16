@@ -992,15 +992,16 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
         # Add Trash item
         # Define Trash item position: last column before the second column starts
-        trash_x = (self.width() // grid_width) - 2  # Second last column
-        trash_y = (self.height() // grid_height) - 1  # Bottom row
+        if self.is_desktop_window:
+            trash_x = (self.width() // grid_width) - 2  # Second last column
+            trash_y = (self.height() // grid_height) - 1  # Bottom row
 
-        trash_path = os.path.expanduser("~/.local/share/Trash/files") if sys.platform != "win32" else "C:\\$Recycle.Bin\\"
-        trash_item = FileItem(trash_path, QtCore.QPointF(trash_x * grid_width, trash_y * grid_height))
-        trash_item.display_name = "Trash"
-        trash_item.is_trash = True
-        self.items.append(trash_item)
-        self.scene.addItem(trash_item)
+            trash_path = os.path.expanduser("~/.local/share/Trash/files") if sys.platform != "win32" else "C:\\$Recycle.Bin\\"
+            trash_item = FileItem(trash_path, QtCore.QPointF(trash_x * grid_width, trash_y * grid_height))
+            trash_item.display_name = "Trash"
+            trash_item.is_trash = True
+            self.items.append(trash_item)
+            self.scene.addItem(trash_item)
 
         # Append each file or folder to self.items
         for name in sorted(folder_files):
