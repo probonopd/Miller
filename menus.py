@@ -7,7 +7,7 @@ This module provides functions to create the main application menu bar using set
 allowing the "Time" menu to be positioned on the right side.
 """
 
-import os, sys, subprocess, time
+import os, sys, subprocess, time, re
 from PyQt6 import QtGui, QtCore, QtWidgets
 
 if sys.platform == "win32":
@@ -427,27 +427,125 @@ def shutdown():
             except Exception as e:
                 QtWidgets.QMessageBox.critical(None, "Error", f"Failed to shut down: {e}")
 
-def win32_populate_windows_menu(window, windows_menu):
+def win32_populate_windows_menu(window, windows_menu, group_by_icon=False):
+    """Populates the given menu with a list of open windows using the Windows API."""
+
+    from PyQt6 import QtGui, QtWidgets
+    import win32gui
+
+    def clean_title(title):
+        """Removes trailing '-', '|', and whitespace at both ends."""
+        return re.sub(r'^[\s\-\|]+|[\s\-\|]+$', '', title)
+
+    def get_icon_hash(icon):
+        """Returns a hashable representation of the icon."""
+        if icon.isNull():
+            return None
+        pixmap = icon.pixmap(16, 16)
+        image = pixmap.toImage()
+        buffer = image.bits().asarray(image.sizeInBytes())  # Convert image to bytes
+        return hash(bytes(buffer))  # Create a hash from the byte data
+
+    def find_common_title(titles):
+        """Finds the longest common meaningful part of window titles."""
+        if not titles:
+            return "Multiple Windows"
+
+        # Split titles into word lists and find common prefix
+        split_titles = [re.split(r'\s*[\-\|]\s*', title) for title in titles]
+        common_words = split_titles[0]
+
+        for words in split_titles[1:]:
+            common_words = [w1 for w1, w2 in zip(common_words, words) if w1 == w2]
+            if not common_words:
+                return "Multiple Windows"
+
+        return " - ".join(common_words)
+
+    def get_topmost_hwnd():
+        """Returns the topmost window handle."""
+        z_order = []
+        current_hwnd = win32gui.GetWindow(win32gui.GetDesktopWindow(), win32con.GW_CHILD)
+        while current_hwnd:
+            if win32gui.IsWindowVisible(current_hwnd) and win32gui.GetWindow(current_hwnd, win32con.GW_OWNER) == 0:
+                z_order.append(current_hwnd)
+            current_hwnd = win32gui.GetWindow(current_hwnd, win32con.GW_HWNDNEXT)
+        print(z_order)
+        if len(z_order) < 2:
+            return None
+        return z_order[1]  # Skip the desktop window
+
     # Clear the menu
     windows_menu.clear()
-    # Use the Windows API to get a list of all open windows
+    windows_menu.setTitle(clean_title("Windows"))
+
+    # Get a list of visible windows with titles
+    windows = []
     def window_enum_handler(hwnd, windows):
         if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd):
             windows.append((hwnd, win32gui.GetWindowText(hwnd)))
-        return True
-    windows = []
     win32gui.EnumWindows(window_enum_handler, windows)
-    windows_menu.setTitle("Windows")
+
+    # Dictionary to store actions grouped by icon hash
+    icon_groups = {}
+
+    window_actions = []
+
+    # Print stacking order (Z-order)
+    topmost_hwnd = get_topmost_hwnd()
+    print(topmost_hwnd)
+
     for hwnd, title in windows:
-        if title != "Desktop":
-            action = windows_menu.addAction(title)
-            action.triggered.connect(lambda checked, hwnd=hwnd: win32_restore_window(hwnd))
-            action.setIcon(win32_get_icon_for_hwnd(hwnd))
-            windows_menu.addAction(action)
+        print(hwnd, title)
+        if title == "Desktop":
+            continue
+
+        clean_title_str = clean_title(title)
+        action = QtGui.QAction(clean_title_str, window)
+        action.triggered.connect(lambda checked, h=hwnd: win32_restore_window(h))
+
+        # Get window icon
+        icon = win32_get_icon_for_hwnd(hwnd)
+        if not icon.isNull():
+            action.setIcon(icon)
+
+        # Highlight the active window
+        if topmost_hwnd == hwnd:
+            action.setChecked(True)
+
+        # Group windows by icon hash
+        icon_key = get_icon_hash(icon)
+        if icon_key:
+            icon_groups.setdefault(icon_key, []).append(action)
+        else:
+            window_actions.append(action)
+
+
+
+    # Create submenus for windows with the same icon (optional)
+    if group_by_icon:
+        for icon_key, actions in icon_groups.items():
+            if len(actions) > 1:
+                # Clean the common part before using it for the submenu
+                common_title = find_common_title([action.text() for action in actions])
+                cleaned_submenu_title = clean_title(common_title)
+                submenu = QtWidgets.QMenu(cleaned_submenu_title, windows_menu)
+                submenu.setIcon(actions[0].icon())
+                for action in actions:
+                    submenu.addAction(action)
+                windows_menu.addMenu(submenu)
+            else:
+                window_actions.append(actions[0])
+
+    # Add remaining single-window actions, even if grouping is off
+    for action in window_actions:
+        windows_menu.addAction(action)
+
+    # Add "Show Desktop" action
     windows_menu.addSeparator()
-    # "Show Desktop" action
-    show_desktop_action = windows_menu.addAction("Show Desktop")
+    show_desktop_action = QtGui.QAction("Show Desktop", window)
     show_desktop_action.triggered.connect(win32_minimize_all_windows)
+    windows_menu.addAction(show_desktop_action)
 
 def win32_minimize_all_windows():
     def window_enum_handler(hwnd, windows):
