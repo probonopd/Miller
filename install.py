@@ -153,7 +153,8 @@ DesktopNames=Spatial
 
 # Set environment variables
 export XDG_SESSION_TYPE=wayland
-export XDG_CURRENT_DESKTOP=MyWaylandDE
+export XDG_CURRENT_DESKTOP=Spatial
+exoort WAYLAND_DISPLAY=wayland-0
 
 # Start the Wayland compositor in the background
 kwin_wayland --xwayland &
