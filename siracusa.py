@@ -1793,7 +1793,7 @@ if __name__ == "__main__":
         try:
             if os.path.exists("/usr/bin/kreadconfig5"):
                 desktop_picture_path = subprocess.run(["kreadconfig5", "--file", "kwinrc", "--group", "Wallpaper", "--key", "Image"], capture_output=True, text=True).stdout.strip()
-            else if os.path.exists("/usr/bin/gsettings"):
+            elif os.path.exists("/usr/bin/gsettings"):
                 desktop_picture_path = subprocess.run(["gsettings", "get", "org.gnome.desktop.background", "picture-uri"], capture_output=True, text=True).stdout.strip()
         except Exception as e:
             print("Error reading desktop_picture path:", e)
