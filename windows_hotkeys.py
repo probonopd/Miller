@@ -11,6 +11,7 @@ from PyQt6 import QtWidgets
 
 from menus import shutdown, win32_minimize_all_windows # FIXME: This import does not feel clean here
 
+from windows_screenshot import screenshot_to_clipboard
 
 import subprocess
 
@@ -64,17 +65,7 @@ class HotKeyManager:
 
     def handle_print_screen(self):
         print("PrintScreen pressed")
-        # Run snippingtool.exe and show error box if it fails
-        result = os.system("snippingtool.exe")
-        if result != 0:
-            try:
-                result = subprocess.run(["powershell", "Get-AppxPackage -allusers Microsoft.ScreenSketch | Foreach {Add-AppxPackage -DisableDevelopmentMode -Register \"$($_.InstallLocation)\\AppxManifest.xml\"}"], check=True)
-            except subprocess.CalledProcessError as e:
-                QtWidgets.QMessageBox.critical(None, "Error", f"An error occurred while executing the command: {e.cmd}")
-            if result.returncode == 0:
-                result = os.system("snippingtool.exe")
-                if result != 0:
-                    QtWidgets.QMessageBox.critical(None, "Error", "An error occurred while executing the command snippingtool.exe")
+        screenshot_to_clipboard()
 
     def register_hotkeys(self):
         print("Registering hotkeys...")
