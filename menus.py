@@ -8,11 +8,62 @@ allowing the "Time" menu to be positioned on the right side.
 """
 
 import os, sys, subprocess, time, re
+
 from PyQt6 import QtGui, QtCore, QtWidgets
+
+from preferences import PreferencesDialog
+from menubar import RoundedMenuBar
 
 if sys.platform == "win32":
     import win32gui, win32con, win32ui # For managing windows
     import window_start_menu
+
+class ColorMenu(QtWidgets.QMenu):
+    def __init__(self, title, window):
+        self.window = window
+        super().__init__(title, self.window)
+        self.colors = ["red", "orange", "yellow", "green", "blue", "purple", "grey"]
+
+        for color in self.colors:
+            action = QtGui.QAction(self)
+            action.setText(color.upper())
+            action.triggered.connect(lambda checked, color=color: self.color_selected(color))
+            self.addAction(action)
+        
+        action = QtGui.QAction(self)
+        action.setText("None")
+        action.triggered.connect(lambda checked, color=None: self.color_selected(color))
+        self.addAction(action)
+
+        # Set the stylesheet for the menu
+        self.setStyleSheet("""
+            QMenu {
+                background-color: #fff;
+            }
+        """)
+
+    def color_selected(self, color):
+        print(f"Color {color} selected")
+        self.window.color_selected(color)
+
+    def paintEvent(self, event):
+        painter = QtGui.QPainter(self)
+        height = self.actionGeometry(self.actions()[0]).height()
+        for i, action in enumerate(self.actions()):
+            if len(self.colors) > i:
+                rect = self.rect()
+                rect.setTop(i * height)
+                rect.setHeight(height)
+                # If hovering over an action, highlight it
+                if action == self.activeAction():
+                    highlight_color = QtGui.QColor(self.colors[i]).lighter(150)
+                    painter.setBrush(QtGui.QBrush(QtGui.QColor(highlight_color)))
+                    painter.drawRect(rect)
+                else:
+                    painter.setBrush(QtGui.QBrush(QtGui.QColor(self.colors[i])))
+                # No border
+                painter.setPen(QtGui.QPen(QtCore.Qt.GlobalColor.transparent))
+                painter.drawRect(rect)   
 
 def create_menus(window):
     """
@@ -31,7 +82,10 @@ def create_menus(window):
     menu_layout.setSpacing(0)  # No extra gaps
 
     # === LEFT-SIDE MENU BAR ===
-    left_menubar = QtWidgets.QMenuBar()
+    if window.is_desktop_window:
+        left_menubar = RoundedMenuBar(round_left=True)
+    else:
+        left_menubar = RoundedMenuBar()
 
     # Start Menu
     if sys.platform == "win32" and window.is_desktop_window:
@@ -62,6 +116,11 @@ def create_menus(window):
     file_menu.addAction(get_info_action)
     file_menu.addSeparator()
 
+    rename_action = QtGui.QAction("Rename", window)
+    rename_action.setShortcut("F2")
+    file_menu.addAction(rename_action)
+    file_menu.addSeparator()
+    
     if os.name == 'nt':
         import windows_integration
         map_drive_action = QtGui.QAction("Map Network Drive", window)
@@ -113,23 +172,23 @@ def create_menus(window):
     edit_menu.addAction(window.paste_action)
     edit_menu.addSeparator()
 
-    rename_action = QtGui.QAction("Rename", window)
-    rename_action.setShortcut("F2")
-    edit_menu.addAction(rename_action)
+    select_all_action = QtGui.QAction("Select All", window)
+    select_all_action.setShortcut("Ctrl+A")
+    edit_menu.addAction(select_all_action)
+
+    edit_menu.addSeparator()
 
     delete_action = QtGui.QAction("Delete", window)
     delete_action.setShortcut("Delete")
     edit_menu.addAction(delete_action)
 
-    select_all_action = QtGui.QAction("Select All", window)
-    select_all_action.setShortcut("Ctrl+A")
-    edit_menu.addAction(select_all_action)
+    move_to_trash_action = QtGui.QAction("Move to Trash", window)
+    edit_menu.addAction(move_to_trash_action)
+
+    edit_menu.addSeparator()
 
     empty_trash_action = QtGui.QAction("Empty Trash", window)
     edit_menu.addAction(empty_trash_action)
-
-    move_to_trash_action = QtGui.QAction("Move to Trash", window)
-    edit_menu.addAction(move_to_trash_action)
 
     if isinstance(window, QtWidgets.QMainWindow) and hasattr(window, 'selectionChanged'):
         copy_action.triggered.connect(window.copy_selected)
@@ -157,6 +216,11 @@ def create_menus(window):
         window.paste_action.setEnabled(False)
         delete_action.setEnabled(False)
         rename_action.setEnabled(False)
+
+    edit_menu.addSeparator()
+    preferences_action = QtGui.QAction("Preferences", window)
+    preferences_action.triggered.connect(lambda: PreferencesDialog(window).show())
+    edit_menu.addAction(preferences_action)
 
     # Go menu
     window.go_menu = left_menubar.addMenu("Go")
@@ -281,6 +345,10 @@ def create_menus(window):
         sort_type.triggered.connect(lambda: window.sort_items("type"))
         sort_menu.addAction(sort_type)
 
+    # Color menu
+    color_menu = ColorMenu("Color", window)
+    left_menubar.addMenu(color_menu)
+
     # Help menu
     help_menu = left_menubar.addMenu("Help")
     about_action = QtGui.QAction("About", window)
@@ -298,7 +366,7 @@ def create_menus(window):
 
     # === RIGHT-SIDE MENU BAR ===
     if window.is_desktop_window:
-        right_menubar = QtWidgets.QMenuBar()
+        right_menubar = RoundedMenuBar(round_right=True)
         
         clock_menu = QtWidgets.QMenu(window)
         clock_menu.setTitle(time.strftime("%H:%M"))
@@ -320,7 +388,8 @@ def create_menus(window):
             right_menubar.addMenu(volume_menu)
 
             windows_menu = QtWidgets.QMenu(window)
-            windows_menu.setTitle("Windows")
+            windows_menu.setTitle("Windows   ") # FIXME: Add a space to make the menu wider in a proper way
+            windows_menu.setStyleSheet("QMenuBar { padding-right: 10px; }")
             right_menubar.addMenu(windows_menu)
             # When opening the Windows menu, populate it with all open windows
             windows_menu.aboutToShow.connect(lambda: win32_populate_windows_menu(window, windows_menu))
@@ -480,7 +549,6 @@ def win32_populate_windows_menu(window, windows_menu, group_by_icon=False):
 
     # Clear the menu
     windows_menu.clear()
-    windows_menu.setTitle(clean_title("Windows"))
 
     # Get a list of visible windows with titles
     windows = []

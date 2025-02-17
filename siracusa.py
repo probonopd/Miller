@@ -31,16 +31,18 @@ Features:
   • We render the desktop folder in full-screen mode when the application starts.
 
 TODO/FIXME:
-* Why does snap_to_grid not sync across windows?
+* Why does snap_to_grid not sync across windows? -> Use app.preferences for this if we want to sync across windows.
 * Get rid of open_windows registry completely. Instead, whenever a window is created, set an attribute with the normalized path on it. Then, whenever a window shall be opened, check if a window with that attribute already exists. This way, we can get rid of the open_windows dictionary which is not robust and may get out of sync.
 * Incorporate fake windows for Wayland absolute positioning
-* Implement emptying the Trash?
+* Implement coloring the items when they are selected and a color is chosen from the color menu.
+* Persist coloring in the ._layout.json file.
+* Implement choosing desktop picture for Linux
 
 FOR TESTING:
 * Windows is ideal for testing because one can test the same code easily using WSL on Debian without and with Wayland, and on Windows natively.
 """
 
-import os, sys, signal, json, shutil, math, time, ctypes
+import os, sys, signal, json, shutil, math, time
 
 from PyQt6 import QtWidgets, QtGui, QtCore
 
@@ -273,6 +275,8 @@ class FileItem(QtWidgets.QGraphicsObject):
         self.file_path = file_path
         self.width = width
         self.height = height
+        self.hidden = False
+        self.color = None
         self.setFlags(
             QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsMovable |
             QtWidgets.QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -316,6 +320,13 @@ class FileItem(QtWidgets.QGraphicsObject):
         return QtCore.QRectF(0, 0, self.width, self.height)
 
     def paint(self, painter: QtGui.QPainter, option: QtWidgets.QStyleOptionGraphicsItem, widget=None):
+
+        if not app.preferences.value("show_hidden_files", False, type=bool) and self.hidden:
+            print(f"Hidden file: {self.file_path}")
+            return
+
+        if os.path.islink(self.file_path) or (sys.platform == "win32" and os.path.splitext(self.file_path)[1].lower() == (".lnk" or ".url")):
+            self.font.setItalic(True)
 
         if not self.pixmap:
             # If the item extension is ".desktop", we read each line, find the line that starts with Icon=, and extract the icon name.
@@ -374,7 +385,14 @@ class FileItem(QtWidgets.QGraphicsObject):
         metrics = QtGui.QFontMetrics(self.font)
         
         space_before_and_after = 6
-        elided_text = metrics.elidedText(self.display_name, QtCore.Qt.TextElideMode.ElideMiddle, self.width - space_before_and_after)
+
+        display_name = self.display_name
+        if app.preferences.value("hide_file_extensions", False, type=bool):
+            display_name_without_extension = QtCore.QFileInfo(display_name).completeBaseName()
+            if display_name_without_extension != "":
+                display_name = display_name_without_extension
+        elided_text = metrics.elidedText(display_name, QtCore.Qt.TextElideMode.ElideMiddle, self.width - space_before_and_after)
+
         text_width = metrics.horizontalAdvance(elided_text)
         text_height = metrics.height()
         text_x = (self.width - text_width) / 2 + 3 - space_before_and_after/2
@@ -400,7 +418,40 @@ class FileItem(QtWidgets.QGraphicsObject):
             painter.drawRect(text_rect)
 
         # Draw the icon
-        painter.drawPixmap(QtCore.QPointF(offset_x, offset_y), self.pixmap)
+
+        # If it is a directory, check if we can read it using listdir; if not draw it as disabled
+        locked = False
+        if self.is_folder:
+            try:
+                os.listdir(self.file_path)
+            except Exception as e:
+                locked = True
+        
+        # Draw the icon, optionally with the tint adjusted to the color
+        if self.color:
+            # FIXME: Find a proper way to tint the icon
+            temp_pixmap = self.pixmap.copy()
+            painter_temp = QtGui.QPainter(temp_pixmap)
+            painter_temp.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_Multiply)
+            color = QtGui.QColor(self.color)
+            painter_temp.fillRect(QtCore.QRectF(0, 0, temp_pixmap.width(), temp_pixmap.height()), color)
+            painter_temp.end()
+            painter.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_SourceOver)
+            painter.drawPixmap(QtCore.QPointF(offset_x, offset_y), temp_pixmap)
+        else:
+            if self.hidden:
+                painter.setOpacity(0.5)
+            painter.drawPixmap(QtCore.QPointF(offset_x, offset_y), self.pixmap)
+
+        # Draw symbolic icon (badge)
+        if locked:
+            lock_icon = QtGui.QIcon.fromTheme("emblem-noread")
+            lock_pixmap = lock_icon.pixmap(QtCore.QSize(16, 16))
+            painter.drawPixmap(QtCore.QPointF(offset_x + pix_w - 16, offset_y + pix_h - 16), lock_pixmap)
+        elif not os.access(self.file_path, os.W_OK):
+            lock_icon = QtGui.QIcon.fromTheme("emblem-readonly")
+            lock_pixmap = lock_icon.pixmap(QtCore.QSize(16, 16))
+            painter.drawPixmap(QtCore.QPointF(offset_x + pix_w - 16, offset_y + pix_h - 16), lock_pixmap)
 
         # Draw translucent white box under the text
         painter.setBrush(QtGui.QBrush(QtGui.QColor(255, 255, 255, 128)))
@@ -408,8 +459,6 @@ class FileItem(QtWidgets.QGraphicsObject):
         painter.drawRect(QtCore.QRectF(text_x - space_before_and_after/2, text_y - text_height, text_width + space_before_and_after, text_height))
         
         # Draw the file/folder name
-        if os.path.islink(self.file_path) or (sys.platform == "win32" and os.path.splitext(self.file_path)[1].lower() == (".lnk" or ".url")):
-            self.font.setItalic(True)
         painter.setPen(QtGui.QPen(QtGui.QColor(0, 0, 0)))
         painter.setFont(self.font)
         painter.drawText(int(text_x), int(text_y-3), elided_text)
@@ -699,6 +748,13 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     selectionChanged = QtCore.pyqtSignal()
 
     def __init__(self, folder_path: str, layout_data: dict = None):
+
+        # Do not create the window if the folder content is not accessible.
+        try:
+            os.listdir(folder_path)
+        except Exception as e:
+            raise Exception(e)
+
         super().__init__()
 
         self.folder_path = folder_path
@@ -783,6 +839,13 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             del open_windows[self.folder_path]
         self.save_layout()
         super().close()
+
+    def color_selected_items(self, color):
+        """Tint the selected items with the given color."""
+        for item in self.items:
+            if item.isSelected():
+                item.color = color
+                item.update()
 
     def open_selected_items(self):
         """Call open_item on the selected items"""
@@ -952,7 +1015,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             item.setPos(grid_x * grid_width, grid_y * grid_height)
 
     def load_files(self):
-
+        layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
         try:
             folder_files = os.listdir(self.folder_path)
         except Exception as e:
@@ -974,7 +1037,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                     folder_files.append(disk_name)
 
         # Load stored positions from layout file if available
-        layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
         stored_positions = {}
         if os.path.exists(layout_file_path):
             try:
@@ -982,10 +1044,13 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                     stored_positions = json.load(f).get("items", {})
             except Exception as e:
                 print(f"Warning: Could not load layout file ({e})")
-
-        # Skip hidden/system files
-        folder_files = [name for name in folder_files if not name.startswith(".")]
-        folder_files = [name for name in folder_files if name.lower() not in ("desktop.ini", ".ds_store", LAYOUT_FILENAME)]
+                fallback_dir = get_fallback_path(self.folder_path)
+                if os.path.exists(fallback_dir):
+                    try:
+                        with open(os.path.join(fallback_dir, LAYOUT_FILENAME), "r") as f:
+                            stored_positions = json.load(f).get("items", {})
+                    except Exception as e:
+                        print(f"Warning: Could not load fallback layout file ({e})")
 
         # Skip Desktop folder. NOTE: We might want to show it instead but make it show the desktop window when double-clicked.
         # It is important that we do not break the Spatial paradigm by showing the Desktop folder in home directory as well as on the desktop.
@@ -1008,29 +1073,42 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             trash_item.display_name = "Trash"
             trash_item.is_trash = True
             self.items.append(trash_item)
-            self.scene.addItem(trash_item)
+            if trash_item not in self.scene.items():
+                self.scene.addItem(trash_item)
 
         # Append each file or folder to self.items
+        # Only add items that are not hidden, based on the user's preference
         for name in sorted(folder_files):
             full_path = os.path.join(self.folder_path, name)
             item = FileItem(full_path, None)
-            self.items.append(item)
+            # Check if item should be hidden
+            if name.startswith(".") or name.startswith("$") or name.lower() in ("desktop.ini", "thumbs.db"):
+                item.hidden = True
+            else:
+                item.hidden = False
+
+            # Add item only if it's not hidden or if the user wants to show hidden files
+            if not item.hidden or app.preferences.value("show_hidden_files", True, type=bool):
+                self.items.append(item)
 
         occupied_positions = set()  # Store occupied positions
 
-        # Mark positions of already existing items
+        # Mark positions of already existing visible items
         for item in self.items:
             if item.pos() == QtCore.QPointF(0, 0):
                 continue
+            # Skip hidden items in grid position calculation
             grid_x = round(item.x() / grid_width)
             grid_y = round(item.y() / grid_height)
             occupied_positions.add((grid_x, grid_y))
 
         # Also mark stored positions to avoid overlapping them
         for path, (pos_x, pos_y) in stored_positions.items():
-            grid_x = round(pos_x / grid_width)
-            grid_y = round(pos_y / grid_height)
-            occupied_positions.add((grid_x, grid_y))
+            item = next((item for item in self.items if item.file_path == path), None)
+            if item:
+                grid_x = round(pos_x / grid_width)
+                grid_y = round(pos_y / grid_height)
+                occupied_positions.add((grid_x, grid_y))
 
         def find_next_available_position():
             """Finds the first free position based on layout direction."""
@@ -1055,6 +1133,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             occupied_positions.add((x, y))
             return QtCore.QPointF(x * grid_width, y * grid_height)
 
+        # Now set the positions for visible items only
         for item in self.items:
             name = item.display_name
             # Restore position if stored, otherwise find a free one
@@ -1065,10 +1144,13 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                 pos = self.drop_target_positions.pop(name)
             else:
                 pos = find_next_available_position()
-            item.setPos(pos)
 
+            # Set the position and ensure visibility based on preferences
+            item.setPos(pos)
+            item.setVisible(True)   # Ensure visible items are visible
             item.openFolderRequested.connect(self.open_folder_from_item)
-            self.scene.addItem(item)
+            if item not in self.scene.items():
+                self.scene.addItem(item)
 
         self.update_scene_rect()
 
@@ -1088,23 +1170,38 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         layout["app.snap_to_grid"] = app.snap_to_grid
 
         layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
+        saved = False
         try:
             with open(layout_file_path, "w") as f:
                 json.dump(layout, f, indent=4)
-        except Exception as e:
-            print(f"Error saving layout: {e}")
+                saved = True
+        # Read-only file system, in this case, we save to ~/.cache/Spatial subdirectories instead
+        except PermissionError:
+            fallback_dir = get_fallback_path(self.folder_path)
+            layout_file_path = os.path.join(fallback_dir, LAYOUT_FILENAME)
+            try:
+                with open(layout_file_path, "w") as f:
+                    json.dump(layout, f, indent=4)
+            except Exception as e:
+                print(f"Error saving layout: {e}")
+                return
+            saved = True
+        if not saved:
+            print(f"Error saving layout to {layout_file_path}")
 
         # Blink the window title to indicate a save.
         # self.setWindowTitle(f"Saved: {self.windowTitle()}")
         # QtCore.QTimer.singleShot(1000, lambda: self.setWindowTitle(self.windowTitle().replace("Saved: ", "")))
 
-    def open_folder(self):
-        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Folder", self.folder_path)
-        if folder:
-            SpatialFilerWindow.get_or_create_window(folder)
-
     def open_folder_from_item(self, folder_path: str, spring_loaded: bool = False):
-        SpatialFilerWindow.get_or_create_window(folder_path, spring_loaded)
+        success = False
+        try:
+            os.listdir(folder_path)
+            success = True
+        except Exception as e:
+            success = False
+        if success:
+            SpatialFilerWindow.get_or_create_window(folder_path, spring_loaded)
 
     def rename_selected(self):
         selected_items = self.scene.selectedItems()
@@ -1292,6 +1389,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def sort_items(self, criterion):
         """Sort items and layout them correctly based on the window type."""
+        # Invalidate stored positions to ensure items are laid out correctly
+        self.layout_data = {}
 
         # Sort items based on the selected criterion, ignoring upper/lowercase
         if criterion == "name":
@@ -1544,12 +1643,70 @@ def handle_drive_removal(drive):
                 "To prevent data loss, always eject volumes before removal."
             )
 
+def get_fallback_path(folder_path):
+    fallback_layout_file_dir = os.path.join(os.path.expanduser("~"), ".cache", "Spatial", "DesktopData")
+    # Check if the folder path is absolute
+    if os.path.isabs(folder_path):
+        # On Windows, remove the ':' from the drive letter if it exists
+        if sys.platform == "win32" and len(folder_path) > 1 and folder_path[1] == ":":
+            folder_path = folder_path[0] + folder_path[2:]
+            folder_path = folder_path.replace("\\", "/")
+        folder_path = folder_path.lstrip("/")
+    fallback_dir = os.path.join(fallback_layout_file_dir, folder_path)
+    try:
+        os.makedirs(fallback_dir, exist_ok=True)
+    except Exception as e:
+        QtGui.QMessageBox.critical(None, "Error", f"Could not create fallback directory: {e}")
+    return fallback_dir
+
+def apply_desktop_picture_with_gradient(view, desktop_picture_path, target_width, target_height):
+    """
+    Applies a scaled desktop_picture with a darkening gradient at the top to the provided QGraphicsView.
+    
+    Args:
+        view (QGraphicsView): The view on which to set the background brush.
+        desktop_picture_path (str): File path to the desktop_picture image.
+        target_width (int): The width to which the desktop_picture should be scaled.
+        target_height (int): The height to which the desktop_picture should be scaled.
+    """
+    # Load and scale the desktop_picture while keeping the aspect ratio and expanding it to fill the area.
+    scaled_pixmap = QtGui.QPixmap(desktop_picture_path).scaled(
+        target_width,
+        target_height,
+        QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        QtCore.Qt.TransformationMode.SmoothTransformation
+    )
+
+    # Create a temporary pixmap with the same size as the scaled desktop_picture.
+    blended_pixmap = QtGui.QPixmap(scaled_pixmap.size())
+    blended_pixmap.fill(QtCore.Qt.GlobalColor.transparent)
+
+    # Use QPainter to paint the desktop_picture and the gradient overlay.
+    painter = QtGui.QPainter(blended_pixmap)
+    painter.drawPixmap(0, 0, scaled_pixmap)
+
+    # Create a linear gradient
+    gradient = QtGui.QLinearGradient(0, 0, 0, 25)
+    gradient.setColorAt(0, QtGui.QColor(0, 0, 0, 64))
+    gradient.setColorAt(0.5, QtGui.QColor(0, 0, 0, 16))
+    gradient.setColorAt(1, QtGui.QColor(0, 0, 0, 0))
+    gradient_brush = QtGui.QBrush(gradient)
+
+    # Set the painting composition mode to Multiply for darkening effect.
+    painter.setCompositionMode(QtGui.QPainter.CompositionMode.CompositionMode_Multiply)
+    painter.fillRect(0, 0, blended_pixmap.width(), 100, gradient_brush)
+    painter.end()
+
+    # Set the resulting pixmap as the background brush of the view.
+    view.setBackgroundBrush(QtGui.QBrush(blended_pixmap))
+
 if __name__ == "__main__":
     # Ctrl-C quits
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     app = QtWidgets.QApplication(sys.argv)
-
+    app.setApplicationName("Spatial")
+    app.preferences = QtCore.QSettings(app.applicationName())
     app.setWindowIcon(QtGui.QIcon.fromTheme("folder"))
 
     # Global registry of open windows by folder path.
@@ -1619,16 +1776,36 @@ if __name__ == "__main__":
         # to simulate the broken Qt .move() of windows when running under Wayland.
 
 
-    # On Windows, get the wallpaper and set it as the background of the window
+    # On Windows, get the desktop_picture and set it as the background of the window
     if sys.platform == "win32":
-        shell = Dispatch("WScript.Shell")
-        windows_wallpaper_path = os.path.normpath(shell.RegRead("HKEY_CURRENT_USER\\Control Panel\\Desktop\\Wallpaper")).replace("\\", "/")
-        if windows_wallpaper_path != "." and os.path.exists(windows_wallpaper_path):
-            desktop_window.view.setBackgroundBrush(QtGui.QBrush(QtGui.QPixmap(windows_wallpaper_path).scaled(desktop_window.width(),
-                                                                                                                desktop_window.height(),
-                                                                                                                QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                                                                                                                QtCore.Qt.TransformationMode.SmoothTransformation)))
-        
+        try:
+            from win32com.client import Dispatch
+            shell = Dispatch("WScript.Shell")
+            reg_desktop_picture = shell.RegRead("HKEY_CURRENT_USER\\Control Panel\\Desktop\\Wallpaper")
+            desktop_picture_path = os.path.normpath(reg_desktop_picture).replace("\\", "/")
+        except Exception as e:
+            print("Error reading registry:", e)
+    elif sys.platform == "darwin":
+        # Get the selected desktop_picture on macOS
+        desktop_picture_path = subprocess.run(["osascript", "-e", "tell application \"Finder\" to get desktop picture"], capture_output=True, text=True).stdout.strip()
+    else:
+        # On Linux, get the desktop_picture from the user's settings in KDE
+        try:
+            if os.path.exists("/usr/bin/kreadconfig5"):
+                desktop_picture_path = subprocess.run(["kreadconfig5", "--file", "kwinrc", "--group", "Wallpaper", "--key", "Image"], capture_output=True, text=True).stdout.strip()
+            else if os.path.exists("/usr/bin/gsettings"):
+                desktop_picture_path = subprocess.run(["gsettings", "get", "org.gnome.desktop.background", "picture-uri"], capture_output=True, text=True).stdout.strip()
+        except Exception as e:
+            print("Error reading desktop_picture path:", e)
+            desktop_picture_path = None
+                
+    # If a valid desktop_picture path is obtained and the file exists, apply the desktop_picture with gradient.
+    if desktop_picture_path and os.path.exists(desktop_picture_path):
+        # Screen size of main monitor
+        target_width = screen.geometry().width()
+        target_height = screen.geometry().height()
+        apply_desktop_picture_with_gradient(desktop_window.view, desktop_picture_path, target_width, target_height)
+
     desktop_window.show()
 
     # Register global hotkeys

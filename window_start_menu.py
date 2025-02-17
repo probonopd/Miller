@@ -137,6 +137,7 @@ class StartMenu(QtWidgets.QMenu):
             self.setIcon(QtGui.QIcon.fromTheme("ms-windows"))
         if self.icon().isNull():
             self.setIcon(QtGui.QIcon.fromTheme("folder"))
+
         self.aboutToShow.connect(self.populate_start_menu)
         self.add_folders = add_folders
         self.start_menu_dirs = [
