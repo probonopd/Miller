@@ -1,34 +1,42 @@
 #!/usr/bin/env python3
 """
-Global hotkeys for Windows refactored into a class-based design
+Global hotkeys for Windows
 """
 
-import ctypes
-import win32con
+import ctypes, win32con, os
 from ctypes import byref, wintypes
 from win32com.client import Dispatch
 
+from PyQt6 import QtWidgets
+
 from menus import shutdown, win32_minimize_all_windows # FIXME: This import does not feel clean here
+
+
+import subprocess
 
 class HotKeyManager:
     def __init__(self, desktop_window=None):
-        self.desktop_window_hwnd = int(desktop_window.winId())
+        if desktop_window:
+            self.desktop_window_hwnd = int(desktop_window.winId())
         self.user32 = ctypes.windll.user32
         self.VK_R = 0x52
         self.VK_D = 0x44
+        self.VK_PrintScreen = 0x2C
 
         # Define hotkeys and their modifiers
         self.hotkeys = {
             'Alt+F4': (win32con.VK_F4, win32con.MOD_ALT),
             'Meta+R' : (self.VK_R, win32con.MOD_WIN),
-            'Meta+D' : (self.VK_D, win32con.MOD_WIN)
+            'Meta+D' : (self.VK_D, win32con.MOD_WIN),
+            'PrintScreen': (self.VK_PrintScreen, 0)
         }
 
         # Map each hotkey to its handler function
         self.actions = {
             'Alt+F4': self.handle_alt_f4,
             'Meta+R' : self.handle_win_r,
-            'Meta+D' : self.handle_win_d
+            'Meta+D' : self.handle_win_d,
+            'PrintScreen': self.handle_print_screen
         }
 
         # We'll store mappings of hotkey id to key name to ease reverse lookup
@@ -53,6 +61,20 @@ class HotKeyManager:
     def handle_win_d(self):
         print("Meta+D pressed")
         win32_minimize_all_windows()
+
+    def handle_print_screen(self):
+        print("PrintScreen pressed")
+        # Run snippingtool.exe and show error box if it fails
+        result = os.system("snippingtool.exe")
+        if result != 0:
+            try:
+                result = subprocess.run(["powershell", "Get-AppxPackage -allusers Microsoft.ScreenSketch | Foreach {Add-AppxPackage -DisableDevelopmentMode -Register \"$($_.InstallLocation)\\AppxManifest.xml\"}"], check=True)
+            except subprocess.CalledProcessError as e:
+                QtWidgets.QMessageBox.critical(None, "Error", f"An error occurred while executing the command: {e.cmd}")
+            if result.returncode == 0:
+                result = os.system("snippingtool.exe")
+                if result != 0:
+                    QtWidgets.QMessageBox.critical(None, "Error", "An error occurred while executing the command snippingtool.exe")
 
     def register_hotkeys(self):
         print("Registering hotkeys...")
