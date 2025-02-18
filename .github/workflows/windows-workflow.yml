@@ -13,7 +13,6 @@ jobs:
 
       - name: Set up Python environment
         shell: cmd
-        # %LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe
         run: |
           echo Setting up the virtual environment...
           python3.exe -m venv venv
@@ -43,11 +42,42 @@ jobs:
               exit /b 1
           )
 
+      - name: Download and extract fonts and icons
+        shell: pwsh
+        run: |
+          echo Downloading fonts...
+          New-Item -ItemType Directory -Path fonts -Force
+          New-Item -ItemType Directory -Path icons -Force
+
+          # Download fonts
+          $fontUrls = @(
+            "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-Regular.ttf",
+            "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-Bold.ttf",
+            "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-Italic.ttf",
+            "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-BoldItalic.ttf"
+          )
+
+          foreach ($url in $fontUrls) {
+            $filename = "fonts\" + [System.IO.Path]::GetFileName($url)
+            Invoke-WebRequest -Uri $url -OutFile $filename
+            echo "Downloaded $filename"
+          }
+
+          echo Downloading icons...
+          $iconUrl = "http://archive.ubuntu.com/ubuntu/pool/universe/x/xubuntu-artwork/xubuntu-artwork_16.04.2.tar.xz"
+          $iconTarFile = "icons\xubuntu-artwork_16.04.2.tar.xz"
+          Invoke-WebRequest -Uri $iconUrl -OutFile $iconTarFile
+
+          echo Extracting icons...
+          # Use 7-Zip to extract the tar.xz file
+          & "C:\Program Files\7-Zip\7z.exe" x $iconTarFile -oicons
+          Remove-Item $iconTarFile
+
       - name: Create executable
         shell: cmd
         run: |
           echo Creating executable...
-          venv\Scripts\python.exe -m PyInstaller --noconsole --onefile siracusa.py
+          venv\Scripts\python.exe -m PyInstaller --noconsole --onefile --add-data "fonts;fonts" --add-data "icons;icons" siracusa.py
           if errorlevel 1 (
               echo Failed to create executable.
               exit /b 1
