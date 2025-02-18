@@ -15,34 +15,52 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Set up Python environment
+        shell: cmd
         run: |
           echo Setting up the virtual environment...
-          %LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe -m venv venv || (
+          %LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe -m venv venv
+          if errorlevel 1 (
               echo Failed to create virtual environment.
               exit /b 1
           )
 
       - name: Install dependencies
+        shell: cmd
         run: |
           echo Installing dependencies...
           venv\Scripts\python.exe -m pip install --upgrade pip >nul 2>&1
-          venv\Scripts\python.exe -m pip install -v -r requirements-windows.txt || (
+          venv\Scripts\python.exe -m pip install -v -r requirements-windows.txt
+          if errorlevel 1 (
               echo Failed to install dependencies.
               exit /b 1
           )
 
       - name: Run script
+        shell: cmd
         run: |
           echo Running siracusa.py...
-          venv\Scripts\python.exe siracusa.py || (
+          venv\Scripts\python.exe siracusa.py
+          if errorlevel 1 (
               echo Script execution failed.
               exit /b 1
           )
 
       - name: Zip venv directory
+        shell: cmd
         run: |
           echo Zipping the venv directory...
-          powershell -Command "Compress-Archive -Path venv -DestinationPath venv.zip" || (
+          powershell -Command "Compress-Archive -Path venv -DestinationPath venv.zip"
+          if errorlevel 1 (
               echo Failed to zip the venv directory.
+              exit /b 1
+          )
+
+      - name: Upload venv.zip using uploadtool.py
+        shell: cmd
+        run: |
+          echo Uploading venv.zip...
+          venv\Scripts\python.exe uploadtool.py venv.zip
+          if errorlevel 1 (
+              echo Failed to upload venv.zip.
               exit /b 1
           )
