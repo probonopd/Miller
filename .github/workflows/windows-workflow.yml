@@ -16,9 +16,10 @@ jobs:
 
       - name: Set up Python environment
         shell: cmd
+        # %LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe
         run: |
           echo Setting up the virtual environment...
-          %LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe -m venv venv
+          python3.exe -m venv venv
           if errorlevel 1 (
               echo Failed to create virtual environment.
               exit /b 1
