@@ -7,6 +7,8 @@ from pylnk3 import Lnk
 
 from styling import Styling
 
+icon_provider = QtWidgets.QFileIconProvider()
+
 def resolve_shortcut(lnk_path):
     try:
         lnk = Lnk(lnk_path)
