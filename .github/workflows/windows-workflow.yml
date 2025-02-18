@@ -46,22 +46,9 @@ jobs:
               exit /b 1
           )
 
-      - name: Zip venv directory
-        shell: cmd
-        run: |
-          echo Zipping the venv directory...
-          powershell -Command "Compress-Archive -Path venv -DestinationPath venv.zip"
-          if errorlevel 1 (
-              echo Failed to zip the venv directory.
-              exit /b 1
-          )
-
-      - name: Upload venv.zip using uploadtool.py
-        shell: cmd
-        run: |
-          echo Uploading venv.zip...
-          venv\Scripts\python.exe uploadtool.py venv.zip
-          if errorlevel 1 (
-              echo Failed to upload venv.zip.
-              exit /b 1
-          )
+      - name: Upload venv as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: venv
+          path: venv
+          retention-days: 1 
