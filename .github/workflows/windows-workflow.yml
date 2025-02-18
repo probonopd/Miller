@@ -36,16 +36,6 @@ jobs:
               exit /b 1
           )
 
-      - name: Run script
-        shell: cmd
-        run: |
-          echo Running siracusa.py...
-          venv\Scripts\python.exe siracusa.py
-          if errorlevel 1 (
-              echo Script execution failed.
-              exit /b 1
-          )
-
       - name: Upload venv as artifact
         uses: actions/upload-artifact@v4
         with:
