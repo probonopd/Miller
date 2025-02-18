@@ -1,0 +1,48 @@
+name: Windows Workflow
+
+on:
+  push:
+    branches:
+      - main  # Change this to your default branch if necessary
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python environment
+        run: |
+          echo Setting up the virtual environment...
+          %LOCALAPPDATA%\Microsoft\WindowsApps\python3.exe -m venv venv || (
+              echo Failed to create virtual environment.
+              exit /b 1
+          )
+
+      - name: Install dependencies
+        run: |
+          echo Installing dependencies...
+          venv\Scripts\python.exe -m pip install --upgrade pip >nul 2>&1
+          venv\Scripts\python.exe -m pip install -v -r requirements-windows.txt || (
+              echo Failed to install dependencies.
+              exit /b 1
+          )
+
+      - name: Run script
+        run: |
+          echo Running siracusa.py...
+          venv\Scripts\python.exe siracusa.py || (
+              echo Script execution failed.
+              exit /b 1
+          )
+
+      - name: Zip venv directory
+        run: |
+          echo Zipping the venv directory...
+          powershell -Command "Compress-Archive -Path venv -DestinationPath venv.zip" || (
+              echo Failed to zip the venv directory.
+              exit /b 1
+          )
