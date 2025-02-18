@@ -5,9 +5,7 @@ import os, sys, shlex, subprocess
 from PyQt6 import QtWidgets, QtGui, QtCore
 from pylnk3 import Lnk
 
-from styling import setup_icon_theme
-setup_icon_theme()
-icon_provider = QtWidgets.QFileIconProvider()
+from styling import Styling
 
 def resolve_shortcut(lnk_path):
     try:
@@ -178,6 +176,7 @@ class StartMenuWindow(QtWidgets.QMainWindow):
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
+    s = Styling(app)
     window = StartMenuWindow()
     window.show()
     sys.exit(app.exec())

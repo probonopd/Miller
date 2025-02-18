@@ -16,7 +16,7 @@ from menubar import RoundedMenuBar
 
 if sys.platform == "win32":
     import win32gui, win32con, win32ui # For managing windows
-    import window_start_menu
+    import windows_start_menu
 
 class ColorMenu(QtWidgets.QMenu):
     def __init__(self, title, window):
@@ -89,7 +89,7 @@ def create_menus(window):
 
     # Start Menu
     if sys.platform == "win32" and window.is_desktop_window:
-        start_menu = window_start_menu.StartMenu(window)
+        start_menu = windows_start_menu.StartMenu(window)
         left_menubar.addMenu(start_menu)
 
     # File Menu

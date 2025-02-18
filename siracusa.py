@@ -3,12 +3,6 @@
 # A file manager in Python?
 # "These days I prefer programming in Python... it's beautiful, exppressive, and simple" - Andy Hertzfeld, https://youtu.be/kqm7ahl2ZYg?feature=shared&t=3705
 
-# FIXME: For whatever strange reason we need to do this here or else Windows will say
-# QWidget: Must construct a QApplication before a QWidget
-import sys
-from PyQt6 import QtWidgets
-app = QtWidgets.QApplication(sys.argv)
-
 """
 A spatial file manager (“Siracusa style spatial Filer) implemented in PyQt6.
 Features:
@@ -61,14 +55,12 @@ if sys.platform == "win32":
 
 import getinfo, menus, fileops, appimage
 
+from styling import Styling
+
 LAYOUT_FILENAME = "._layout.json"
 
 item_width = grid_width = 100
 item_height = grid_height = 60
-
-from styling import setup_icon_theme
-setup_icon_theme()
-icon_provider = QtWidgets.QFileIconProvider()
 
 # DriveWatcher: Detects newly inserted drives and updates the UI
 class DriveWatcher(QtCore.QThread):
@@ -375,6 +367,7 @@ class FileItem(QtWidgets.QGraphicsObject):
                     if self.icon is None:
                         self.icon = QtGui.QIcon.fromTheme("application-x-executable")
                 else:
+                    icon_provider = QtWidgets.QFileIconProvider()
                     self.icon = icon_provider.icon(file_info)
                 icon_size = QtCore.QSize(32, 32)
                 self.pixmap = self.icon.pixmap(icon_size)
@@ -1710,6 +1703,9 @@ if __name__ == "__main__":
     # Ctrl-C quits
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
+    app = QtWidgets.QApplication(sys.argv)
+    s = Styling(app)
+
     # app = QtWidgets.QApplication(sys.argv) # See top of this file
     app.setApplicationName("Spatial")
     app.preferences = QtCore.QSettings(app.applicationName())
@@ -1717,13 +1713,6 @@ if __name__ == "__main__":
 
     # Global registry of open windows by folder path.
     open_windows = {}
-
-    try:
-        import styling
-    except ImportError:
-        pass
-    if "styling" in sys.modules:
-        styling.apply_styling(app)
 
     # Reserving space for the menu bar on Windows
     if sys.platform == "win32":

@@ -7,13 +7,7 @@ This module defines the main window (`MillerColumns`) and its functionalities,
 including file navigation, status bar updates, etc.
 """
 
-# FIXME: For whatever strange reason we need to do this here or else Windows will say
-# QWidget: Must construct a QApplication before a QWidget
-import sys
-from PyQt6 import QtWidgets
-app = QtWidgets.QApplication(sys.argv)
-
-import os
+import os, sys
 
 # FIXME: Import Qt like this: from PyQt6 import QtWidgets, QtGui, QtCore
 from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu, QStyle
@@ -25,6 +19,8 @@ if sys.platform == 'win32':
     import windows_file_operations, windows_trash
 
 import menus, toolbar, status_bar, getinfo, appimage
+
+from styling import Styling
 
 class CustomFileSystemModel(QFileSystemModel):
     """
@@ -595,7 +591,8 @@ class MillerColumns(QMainWindow):
                 QtWidgets.QMessageBox.critical(self, "Error", f"Failed to empty trash: {e}")
 
 if __name__ == "__main__":
-    # app = QApplication(sys.argv) # See the top of this file
+    app = QApplication(sys.argv)
+    s = Styling(app)
 
     # Output not only to the console but also to the GUI
     try:
@@ -606,13 +603,6 @@ if __name__ == "__main__":
         app.log_console = log_console.ConsoleOutputStream()
         sys.stdout = log_console.Tee(sys.stdout, app.log_console)
         sys.stderr = log_console.Tee(sys.stderr, app.log_console)
-
-    try:
-        import styling
-    except ImportError:
-        pass
-    if "styling" in sys.modules:
-        styling.apply_styling(app)
 
     app.setWindowIcon(app.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
     window = MillerColumns()
