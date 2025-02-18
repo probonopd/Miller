@@ -3,6 +3,12 @@
 # A file manager in Python?
 # "These days I prefer programming in Python... it's beautiful, exppressive, and simple" - Andy Hertzfeld, https://youtu.be/kqm7ahl2ZYg?feature=shared&t=3705
 
+# FIXME: For whatever strange reason we need to do this here or else Windows will say
+# QWidget: Must construct a QApplication before a QWidget
+import sys
+from PyQt6 import QtWidgets
+app = QtWidgets.QApplication(sys.argv)
+
 """
 A spatial file manager (“Siracusa style spatial Filer) implemented in PyQt6.
 Features:
@@ -1704,7 +1710,7 @@ if __name__ == "__main__":
     # Ctrl-C quits
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
-    app = QtWidgets.QApplication(sys.argv)
+    # app = QtWidgets.QApplication(sys.argv) # See top of this file
     app.setApplicationName("Spatial")
     app.preferences = QtCore.QSettings(app.applicationName())
     app.setWindowIcon(QtGui.QIcon.fromTheme("folder"))
