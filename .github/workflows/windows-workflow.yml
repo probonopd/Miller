@@ -45,9 +45,10 @@ jobs:
 
       - name: Create executable
         shell: cmd
+        # --noconsole
         run: |
           echo Creating executable...
-          venv\Scripts\python.exe -m PyInstaller --onefile --noconsole siracusa.py
+          venv\Scripts\python.exe -m PyInstaller --onefile --debug=imports siracusa.py
           if errorlevel 1 (
               echo Failed to create executable.
               exit /b 1
