@@ -33,9 +33,36 @@ jobs:
               exit /b 1
           )
 
+      - name: Install PyInstaller
+        shell: cmd
+        run: |
+          echo Installing PyInstaller...
+          venv\Scripts\python.exe -m pip install pyinstaller
+          if errorlevel 1 (
+              echo Failed to install PyInstaller.
+              exit /b 1
+          )
+
+      - name: Create executable
+        shell: cmd
+        run: |
+          echo Creating executable...
+          venv\Scripts\python.exe -m PyInstaller --onefile --noconsole siracusa.py
+          if errorlevel 1 (
+              echo Failed to create executable.
+              exit /b 1
+          )
+
       - name: Upload venv as artifact
         uses: actions/upload-artifact@v4
         with:
           name: venv
           path: venv
-          retention-days: 1 
+          retention-days: 1
+
+      - name: Upload executable as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: siracusa-executable
+          path: dist/siracusa.exe
+          retention-days: 1
