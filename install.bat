@@ -1,6 +1,10 @@
 @echo off
 setlocal
 
+; set "HTTPS_PROXY=http://127.0.0.1:3128"
+; set "HTTP_PROXY=http://127.0.0.1:3128"
+; set "PIP_PROXY=http://127.0.0.1:3128"
+
 echo Setting up the virtual environment...
 %SystemRoot%\py.exe -m venv venv || (
     echo Failed to create virtual environment.
