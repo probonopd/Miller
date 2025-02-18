@@ -1,10 +1,7 @@
 name: Windows Workflow
 
 on:
-  push:
-    branches:
-      - main  # Change this to your default branch if necessary
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
