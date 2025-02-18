@@ -7,8 +7,13 @@ This module defines the main window (`MillerColumns`) and its functionalities,
 including file navigation, status bar updates, etc.
 """
 
-import sys, os
-import appimage
+# FIXME: For whatever strange reason we need to do this here or else Windows will say
+# QWidget: Must construct a QApplication before a QWidget
+import sys
+from PyQt6 import QtWidgets
+app = QtWidgets.QApplication(sys.argv)
+
+import os
 
 # FIXME: Import Qt like this: from PyQt6 import QtWidgets, QtGui, QtCore
 from PyQt6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QListView, QWidget, QAbstractItemView, QMessageBox, QLabel, QTextEdit, QStackedWidget, QInputDialog, QMenu, QStyle
@@ -19,7 +24,7 @@ if sys.platform == 'win32':
     from windows_integration import show_context_menu
     import windows_file_operations, windows_trash
 
-import menus, toolbar, status_bar, getinfo
+import menus, toolbar, status_bar, getinfo, appimage
 
 class CustomFileSystemModel(QFileSystemModel):
     """
@@ -590,7 +595,7 @@ class MillerColumns(QMainWindow):
                 QtWidgets.QMessageBox.critical(self, "Error", f"Failed to empty trash: {e}")
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    # app = QApplication(sys.argv) # See the top of this file
 
     # Output not only to the console but also to the GUI
     try:
