@@ -77,7 +77,7 @@ jobs:
         shell: cmd
         run: |
           echo Creating executable...
-          venv\Scripts\python.exe -m PyInstaller --noconsole --onefile --add-data "fonts;fonts" --add-data "icons;icons" siracusa.py
+          venv\Scripts\python.exe -m PyInstaller --noconsole --onefile --add-data "fonts;." --add-data "icons;." siracusa.py
           if errorlevel 1 (
               echo Failed to create executable.
               exit /b 1
