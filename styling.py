@@ -20,8 +20,13 @@ class Styling:
 
     def resource_path(self, relative_path):
         if hasattr(sys, '_MEIPASS'):
-            return os.path.join(sys._MEIPASS, relative_path)
-        return os.path.join(os.path.abspath("."), relative_path)
+            rp = os.path.join(sys._MEIPASS, relative_path)
+        else:
+            rp = os.path.join(os.path.dirname(__file__), relative_path)
+            if sys.platform == "win32":
+                rp = rp.replace("/", "\\")
+        print("Resource path:", rp)
+        return rp
 
     def apply_styling(self):
         app = self.app
