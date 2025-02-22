@@ -1,0 +1,91 @@
+name: Linux Workflow
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python environment
+        run: |
+          echo "Setting up the virtual environment..."
+          python3 -m venv venv
+          if [ $? -ne 0 ]; then
+              echo "Failed to create virtual environment."
+              exit 1
+          fi
+
+      - name: Install dependencies
+        run: |
+          echo "Installing dependencies..."
+          venv/bin/python -m pip install --upgrade pip > /dev/null 2>&1
+          venv/bin/python -m pip install -v -r requirements-linux.txt
+          if [ $? -ne 0 ]; then
+              echo "Failed to install dependencies."
+              exit 1
+          fi
+
+      - name: Install PyInstaller
+        run: |
+          echo "Installing PyInstaller..."
+          venv/bin/python -m pip install pyinstaller
+          if [ $? -ne 0 ]; then
+              echo "Failed to install PyInstaller."
+              exit 1
+          fi
+
+      - name: Download and extract fonts and icons
+        run: |
+          echo "Downloading fonts..."
+          mkdir -p fonts icons
+
+          # Download fonts
+          fontUrls=(
+            "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-Regular.ttf"
+            "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-Bold.ttf"
+            "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-Italic.ttf"
+            "https://github.com/rdey/rdey-packages/raw/refs/heads/master/design/fonts/Inter-BoldItalic.ttf"
+          )
+
+          for url in "${fontUrls[@]}"; do
+            filename="fonts/$(basename "$url")"
+            curl -L "$url" -o "$filename"
+            echo "Downloaded $filename"
+          done
+
+          echo "Downloading icons..."
+          iconUrl="http://archive.ubuntu.com/ubuntu/pool/universe/x/xubuntu-artwork/xubuntu-artwork_16.04.2.tar.xz"
+          iconTarFile="icons/xubuntu-artwork_16.04.2.tar.xz"
+          curl -L "$iconUrl" -o "$iconTarFile"
+
+          echo "Extracting icons..."
+          tar -xf "$iconTarFile" -C icons
+          rm "$iconTarFile"
+
+      - name: Create executable
+        run: |
+          echo "Creating executable..."
+          venv/bin/python -m PyInstaller --noconsole --onefile --add-data "fonts:fonts" --add-data "icons:icons" siracusa.py
+          if [ $? -ne 0 ]; then
+              echo "Failed to create executable."
+              exit 1
+          fi
+
+      - name: Upload venv as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: venv
+          path: venv
+          retention-days: 1
+
+      - name: Upload executable as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: siracusa-executable
+          path: dist/siracusa
+          retention-days: 1
