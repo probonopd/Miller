@@ -63,7 +63,8 @@ class Styling:
                     f"Oops! It looks like the following fonts are missing: {missing_fonts_str}.\n\n"
                     "Please download the 'Inter' font family from the following link:\n"
                     "https://fonts.google.com/specimen/Inter\n\n"
-                    "After downloading, place the font files in the 'fonts' directory located in the same folder as your script."
+                    "After downloading, place the font files in the 'fonts' directory located in the same folder as your script.\n\n"
+                    "Resource path: " + self.resource_path("")
                 )
                 msg_box.setWindowTitle("Font Error")
                 msg_box.exec()
