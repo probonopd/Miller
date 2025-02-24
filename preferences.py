@@ -62,9 +62,6 @@ class PreferencesDialog(QtWidgets.QDialog):
             desktop_layout.addWidget(self.desktop_picture_label)
             desktop_layout.addWidget(self.desktop_picture_button)
             layout.addLayout(desktop_layout)
-        
-        if sys.platform == "win32":
-            # Read the value of 
 
     def _update_preference(self, key, state):
         self.preferences.setValue(key, bool(state))
