@@ -23,7 +23,7 @@ class ZipperThread(QtCore.QThread):
         self.new_zip_created = False
 
     def show_error(self, message):
-        QtWidgets.QMessageBox.critical(self, "Error", message)
+        QtWidgets.QMessageBox.critical(None, "Error", message)
 
     def run(self):
         logging.info(f"Starting to zip: {self.path_to_zip} to {self.output_zip_file}")
@@ -86,7 +86,7 @@ class UnzipperThread(QtCore.QThread):
         self._is_running = True
 
     def show_error(self, message):
-        QtWidgets.QMessageBox.critical(self, "Error", message)
+        QtWidgets.QMessageBox.critical(None, "Error", message)
 
     def run(self):
         logging.info(f"Starting to unzip: {self.zip_file} to {self.extract_to}")
@@ -158,7 +158,7 @@ class ZipFolderApp(QtWidgets.QWidget):
     def start_zipping(self):
         output_zip_file = f"{self.path_to_zip}.zip"
         if os.path.exists(output_zip_file):
-            QtWidgets.QMessageBox.critical(self, "Error", f"The ZIP file '{output_zip_file}' already exists.")
+            QtWidgets.QMessageBox.critical(None, "Error", f"The ZIP file '{output_zip_file}' already exists.")
             return
 
         self.zipper_thread = ZipperThread(self.path_to_zip)
@@ -179,7 +179,7 @@ class ZipFolderApp(QtWidgets.QWidget):
         self.close()
 
     def show_error(self, message):
-        QtWidgets.QMessageBox.critical(self, "Error", message)
+        QtWidgets.QMessageBox.critical(None, "Error", message)
 
     def cancel_zipping(self):
         if self.zipper_thread:
@@ -228,7 +228,7 @@ class UnzipFolderApp(QtWidgets.QWidget):
         if not extract_to:
             extract_to = QtWidgets.QFileDialog.getExistingDirectory(self, "Select a folder to extract to")
         if not extract_to:
-            QtWidgets.QMessageBox.critical(self, "Error", "No extraction folder selected.")
+            QtWidgets.QMessageBox.critical(None, "Error", "No extraction folder selected.")
             self.close()
             return
         
@@ -267,7 +267,7 @@ class UnzipFolderApp(QtWidgets.QWidget):
         self.close()
 
     def show_error(self, message):
-        QtWidgets.QMessageBox.critical(self, "Error", message)
+        QtWidgets.QMessageBox.critical(None, "Error", message)
 
     def cancel_unzipping(self):
         if self.unzipper_thread and self.unzipper_thread.isRunning():
