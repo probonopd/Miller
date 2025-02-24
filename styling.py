@@ -64,7 +64,7 @@ class Styling:
                     "Please download the 'Inter' font family from the following link:\n"
                     "https://fonts.google.com/specimen/Inter\n\n"
                     "After downloading, place the font files in the 'fonts' directory located in the same folder as your script.\n\n"
-                    self.resource_path("fonts")
+                    "" + self.resource_path("fonts")
                 )
                 msg_box.setWindowTitle("Font Error")
                 msg_box.exec()
@@ -107,7 +107,7 @@ class Styling:
                 "Please download the 'elementary-xfce' icon theme from the following link:\n"
                 "http://archive.ubuntu.com/ubuntu/pool/universe/x/xubuntu-artwork/xubuntu-artwork_16.04.2.tar.xz\n"
                 "and extract 'elementary-xfce' to the 'icons' directory located in the same folder as your script.\n\n"
-                self.resource_path("icons")
+                "" + self.resource_path("icons")
             )
             msg_box.setWindowTitle("Icon Theme Error")
             msg_box.exec()

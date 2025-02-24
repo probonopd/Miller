@@ -583,7 +583,10 @@ class SpatialFiler(QMainWindow):
                     drag = QDrag(self)
                     mime_data = QMimeData()
                     for item in self.selected_files:
-                        mime_data.setUrls([QUrl.fromLocalFile(f.path) for f in self.selected_files])
+                        url = QUrl.fromLocalFile(f.path)
+                        mime_data.setUrls([url])
+                        local_path = url.toLocalFile()
+                        mime_data.setText(local_path)
                     drag.setMimeData(mime_data)
                     drag.setPixmap(combined_pixmap)
                     drag.setHotSpot(QPoint(int(app.icon_size / 2), int(app.icon_size / 2)))

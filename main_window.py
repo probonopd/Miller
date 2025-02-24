@@ -76,7 +76,10 @@ class DragDropListView(QListView):
             drag = QDrag(self)
             mime_data = QMimeData()
             item_path = self.model().filePath(index)
-            mime_data.setUrls([QUrl.fromLocalFile(item_path)])
+            url = QUrl.fromLocalFile(item_path)
+            mime_data.setUrls([url])
+            local_path = url.toLocalFile()
+            mime_data.setText(local_path)
             drag.setMimeData(mime_data)
 
             # The icon of the dragged item

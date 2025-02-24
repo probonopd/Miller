@@ -4,6 +4,9 @@ import sys
 import logging
 from PyQt6 import QtWidgets, QtCore
 
+from trace import Trace
+Trace()
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -18,6 +21,9 @@ class ZipperThread(QtCore.QThread):
         self._is_running = True
         self.output_zip_file = f"{self.path_to_zip}.zip"
         self.new_zip_created = False
+
+    def show_error(self, message):
+        QtWidgets.QMessageBox.critical(self, "Error", message)
 
     def run(self):
         logging.info(f"Starting to zip: {self.path_to_zip} to {self.output_zip_file}")
@@ -41,7 +47,6 @@ class ZipperThread(QtCore.QThread):
                 for root, _, files in os.walk(self.path_to_zip):
                     for file in files:
                         if not self._is_running:
-                            self.error.emit("Zipping was canceled.")
                             return
 
                         file_path = os.path.join(root, file)
@@ -75,8 +80,13 @@ class UnzipperThread(QtCore.QThread):
     def __init__(self, zip_file, extract_to):
         super().__init__()
         self.zip_file = zip_file
+
         self.extract_to = extract_to
+        
         self._is_running = True
+
+    def show_error(self, message):
+        QtWidgets.QMessageBox.critical(self, "Error", message)
 
     def run(self):
         logging.info(f"Starting to unzip: {self.zip_file} to {self.extract_to}")
@@ -84,7 +94,7 @@ class UnzipperThread(QtCore.QThread):
         if not os.path.exists(self.zip_file):
             self.error.emit(f"The ZIP file '{self.zip_file}' does not exist.")
             return
-
+        
         with zipfile.ZipFile(self.zip_file, 'r') as zipf:
             total_files = len(zipf.namelist())
             if total_files == 0:
@@ -95,8 +105,7 @@ class UnzipperThread(QtCore.QThread):
 
             for index, file in enumerate(zipf.namelist()):
                 if not self._is_running:
-                    self.error.emit("Unzipping was canceled.")
-                    return
+                    return  # Ensure we exit immediately
 
                 try:
                     zipf.extract(file, self.extract_to)
@@ -109,10 +118,14 @@ class UnzipperThread(QtCore.QThread):
         self.progress.emit(100)
         self.finished.emit()
 
+
     def cancel(self):
         self._is_running = False
 
 class ZipFolderApp(QtWidgets.QWidget):
+
+    error = QtCore.pyqtSignal(str) 
+
     def __init__(self, path_to_zip):
         super().__init__()
         self.path_to_zip = path_to_zip
@@ -151,7 +164,7 @@ class ZipFolderApp(QtWidgets.QWidget):
         self.zipper_thread = ZipperThread(self.path_to_zip)
         self.zipper_thread.progress.connect(self.update_progress)
         self.zipper_thread.finished.connect(self.on_finished)
-        self.zipper_thread.error.connect(self.show_error)
+        self.zipper_thread.error.connect(self.error.emit)
         self.zipper_thread.start()
         self.show()
 
@@ -179,12 +192,15 @@ class ZipFolderApp(QtWidgets.QWidget):
         event.accept()
 
 class UnzipFolderApp(QtWidgets.QWidget):
-    def __init__(self, zip_file):
+
+    error = QtCore.pyqtSignal(str) 
+
+    def __init__(self, zip_file, extract_to=None):
         super().__init__()
         self.zip_file = zip_file
         self.unzipper_thread = None
         self.init_ui()
-        self.start_unzipping()
+        self.start_unzipping(extract_to)
 
     def init_ui(self):
         self.setWindowTitle('Unzipping')
@@ -215,11 +231,28 @@ class UnzipFolderApp(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "Error", "No extraction folder selected.")
             self.close()
             return
+        
+        # If destination folder exists, check if it's empty. If it is not empty, ask the user to confirm
+        if os.path.exists(extract_to):
+            if os.listdir(extract_to):
+                confirm = QtWidgets.QMessageBox.question(None, "Confirm Extract",
+                    f"The folder '{extract_to}' is not empty. Do you want to continue and overwrite existing files?",
+                    QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No)
+                if confirm == QtWidgets.QMessageBox.StandardButton.No:
+                    return
+                
+        # Create the destination folder if it does not exist
+        if not os.path.exists(extract_to):
+            try:
+                os.makedirs(extract_to)
+            except Exception as e:
+                self.error.emit(f"Error creating folder {extract_to}: {str(e)}")
+                return
 
         self.unzipper_thread = UnzipperThread(self.zip_file, extract_to)
         self.unzipper_thread.progress.connect(self.update_progress)
         self.unzipper_thread.finished.connect(self.on_finished)
-        self.unzipper_thread.error.connect(self.show_error)
+        self.unzipper_thread.error.connect(self.error.emit)
         self.unzipper_thread.start()
         self.show()
 
@@ -237,10 +270,12 @@ class UnzipFolderApp(QtWidgets.QWidget):
         QtWidgets.QMessageBox.critical(self, "Error", message)
 
     def cancel_unzipping(self):
-        if self.unzipper_thread:
+        if self.unzipper_thread and self.unzipper_thread.isRunning():
             self.unzipper_thread.cancel()
-            self.unzipper_thread.wait()
+            self.unzipper_thread.quit()  # Requests clean exit
+            self.unzipper_thread.wait()  # Ensures it has stopped
         self.close()
+
 
     def closeEvent(self, event):
         self.cancel_unzipping()

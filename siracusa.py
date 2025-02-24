@@ -53,7 +53,7 @@ if sys.platform == "win32":
     import windows_eject
     import windows_trash
 
-import getinfo, menus, fileops, appimage
+import getinfo, menus, fileops, appimage, zipping
 
 from styling import Styling
 
@@ -204,6 +204,7 @@ class SpatialFilerView(QtWidgets.QGraphicsView):
             # Otherwise, for cross-window drag, you can store the drop positions for later processing.
             # For example:
             menu = QtWidgets.QMenu(self)
+            menu.addSeparator()
             copy_action = menu.addAction("Copy")
             move_action = menu.addAction("Move")
             symlink_action = menu.addAction("Symlink")
@@ -663,6 +664,27 @@ class FileItem(QtWidgets.QGraphicsObject):
         animation.finished.connect(lambda: self.setScale(1.0))  # Reset after animation
         animation.start()
 
+    def unzip_files(self, file_paths):
+        """Unzips the selected files in the current folder."""
+        if not all(f.lower().endswith(".zip") for f in file_paths):
+            QtWidgets.QMessageBox.critical(None, "Error", "All selected files must be ZIP archives.")
+            return
+        self.unzip_windows = []  # Store references to keep them alive
+        print("Unzipping files:", file_paths)
+        for file_path in file_paths:
+            if file_path != None:
+                z = zipping.UnzipFolderApp(file_path, file_path.replace(".zip", ""))
+                self.unzip_windows.append(z)
+
+    def zip_files(self, file_paths):
+        """Zips the selected files in the current folder."""
+        self.zip_windows = []
+        print("Zipping files:", file_paths)
+        for file_path in file_paths:
+            if file_path != None:
+                z = zipping.ZipFolderApp(file_path)
+                self.zip_windows.append(z)
+
     def contextMenuEvent(self, event: QtWidgets.QGraphicsSceneContextMenuEvent):
         """Right-click selects the item before opening the context menu."""
         if not self.isSelected():  
@@ -676,6 +698,15 @@ class FileItem(QtWidgets.QGraphicsObject):
         # Create context menu
         menu = QtWidgets.QMenu()
         open_action = menu.addAction("Open")
+        menu.addSeparator()
+        # Extract if file ends with .zip
+        file_paths = [os.path.normpath(item.file_path) for item in self.scene().selectedItems() if isinstance(item, FileItem)]
+        if all(f.lower().endswith(".zip") for f in file_paths):
+            unzip_action = menu.addAction("Extract")
+            unzip_action.triggered.connect(lambda: self.unzip_files(file_paths))
+        else:
+            zip_action = menu.addAction("Zip")
+            zip_action.triggered.connect(lambda: self.zip_files(file_paths))
         menu.addSeparator()
         info_action = menu.addAction("Get Info...")
         rename_action = menu.addAction("Rename")
@@ -836,7 +867,12 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def close(self):
         if self.folder_path in open_windows:
             del open_windows[self.folder_path]
-        self.save_layout()
+        try:
+            self.save_layout()
+        except:
+            # The drive may already have been removed
+            print("Could not save layout for", self.folder_path)
+            pass
         super().close()
 
     def color_selected_items(self, color):
@@ -1081,7 +1117,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             full_path = os.path.join(self.folder_path, name)
             item = FileItem(full_path, None)
             # Check if item should be hidden
-            if name.startswith(".") or name.startswith("$") or name.lower() in ("desktop.ini", "thumbs.db"):
+            if name.startswith(".") or name.startswith("$") or name.startswith("~") or name.lower() in ("desktop.ini", "thumbs.db"):
                 item.hidden = True
             else:
                 item.hidden = False
@@ -1163,12 +1199,18 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         return layout
 
     def save_layout(self):
+        # Check if the drive containing the folder is still mounted
+        normalized_folder_path = os.path.normpath(self.folder_path)
+        storage_info = QtCore.QStorageInfo(normalized_folder_path)
+        if not storage_info.isValid() or not storage_info.isReady():
+            print(f"Drive {normalized_folder_path} is no longer mounted. Not saving layout.")
+            return
         # Get the current layout dictionary.
         layout = self.get_layout()
         # Add the app.snap_to_grid state into the layout.
         layout["app.snap_to_grid"] = app.snap_to_grid
 
-        layout_file_path = os.path.join(self.folder_path, LAYOUT_FILENAME)
+        layout_file_path = os.path.join(normalized_folder_path, LAYOUT_FILENAME)
         saved = False
         try:
             with open(layout_file_path, "w") as f:
@@ -1176,7 +1218,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                 saved = True
         # Read-only file system, in this case, we save to ~/.cache/Spatial subdirectories instead
         except PermissionError:
-            fallback_dir = get_fallback_path(self.folder_path)
+            fallback_dir = get_fallback_path(normalized_folder_path)
             layout_file_path = os.path.join(fallback_dir, LAYOUT_FILENAME)
             try:
                 with open(layout_file_path, "w") as f:
@@ -1611,7 +1653,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def selectedItems(self):
         return self.scene.selectedItems()
 
-def handle_drive_removal(drive):
+"""def handle_drive_removal(drive):
         normalized_drive = os.path.normpath(drive)
 
         # Close any open windows associated with the removed drive
@@ -1640,7 +1682,47 @@ def handle_drive_removal(drive):
                 None, "Warning",
                 f"Volume {normalized_drive} was removed without being ejected first.\n\n"
                 "To prevent data loss, always eject volumes before removal."
-            )
+            )"""
+
+def is_dialog_open(title):
+    for widget in QtWidgets.QApplication.topLevelWidgets():
+        if widget.windowTitle() == title:
+            return True
+    return False
+
+def handle_drive_removal(drive):
+        normalized_drive = os.path.normpath(drive)
+
+        # Close any open windows associated with the removed drive
+        removed_volume_name = QtCore.QStorageInfo(normalized_drive).displayName()
+        windows_to_close = []
+        for window in open_windows.values():
+            path = window.folder_path
+            print("A window is open with title:", window.windowTitle(), "at path:", path)
+            if os.path.normpath(path).startswith(normalized_drive) or window.volume_name == removed_volume_name:
+                windows_to_close.append(window) # Do not close here to avoid modifying the dictionary while iterating
+                print(f"Closing window for {normalized_drive} at {path}")
+        for window in windows_to_close:
+            window.close()
+
+        desktop_window.refresh_view()
+
+        # If the drive was ejected by the application, do not show the warning
+        if normalized_drive in ejected_drives:
+            ejected_drives.discard(normalized_drive)
+            return
+        else:
+            if normalized_drive.startswith("/tmp") or os.path.basename(normalized_drive).startswith("."):
+                return
+            # Show error message only if it was NOT ejected by the app
+            if not normalized_drive.startswith("/tmp") and not os.path.basename(normalized_drive).startswith("."):
+                dialog_title = f"Warning - {normalized_drive}"
+                if not is_dialog_open(dialog_title):
+                    QtWidgets.QMessageBox.critical(
+                        None, dialog_title,
+                        f"Volume {normalized_drive} was removed without being ejected first.\n\n"
+                        "To prevent data loss, always eject volumes before removal."
+                    )
 
 def get_fallback_path(folder_path):
     fallback_layout_file_dir = os.path.join(os.path.expanduser("~"), ".cache", "Spatial", "DesktopData")

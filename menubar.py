@@ -23,7 +23,7 @@ class RoundedMenuBar(QtWidgets.QMenuBar):
         if self.round_left:
             painter.save()
             path = QtGui.QPainterPath()
-            path.addRect(0, 0, radius, radius)
+            path.addRect(0, 0, radius+0.3, radius+0.3) # FIXME: Find a solution that works on HiDPI without hardcoding 0.3
             path.addEllipse(0, 0, radius*2, radius*2)
             path = path.simplified()
             painter.setClipPath(path)
@@ -33,7 +33,7 @@ class RoundedMenuBar(QtWidgets.QMenuBar):
         if self.round_right:
             painter.save()
             path = QtGui.QPainterPath()
-            path.addRect(self.width()-radius, 0, radius, radius)
+            path.addRect(self.width()-radius-0.3, 0, radius+0.3, radius+0.3) # FIXME: Find a solution that works on HiDPI without hardcoding 0.3
             path.addEllipse(self.width()-radius*2, 0, radius*2, radius*2)
             path = path.simplified()
             painter.setClipPath(path)
