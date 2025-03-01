@@ -1201,6 +1201,9 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def save_layout(self):
         # Check if the drive containing the folder is still mounted
         normalized_folder_path = os.path.normpath(self.folder_path)
+        if not os.path.exists(normalized_folder_path):
+            print(f"Folder {normalized_folder_path} does not exist. Not saving layout.")
+            return
         storage_info = QtCore.QStorageInfo(normalized_folder_path)
         if not storage_info.isValid() or not storage_info.isReady():
             print(f"Drive {normalized_folder_path} is no longer mounted. Not saving layout.")
@@ -1293,6 +1296,10 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                         self.items.remove(item)
                 except Exception as e:
                     QtWidgets.QMessageBox.critical(self, "Error", f"Error deleting {item.file_path}: {e}")
+                # Close any open windows with paths starting with the deleted item's path
+                for path in list(open_windows.keys()):
+                    if path.startswith(item.file_path):
+                        open_windows[path].close()
             self.update_status_bar()
 
     def update_scene_rect(self):
@@ -1412,6 +1419,10 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             self.view.centerOn(best_item)
 
     def refresh_view(self):
+        # Return if the folder path does not exist anymore, e.g., when the drive is removed or the folder is deleted
+        if not os.path.exists(self.folder_path):
+            print(f"Folder {self.folder_path} does not exist. Not refreshing view.")
+            return
         self.layout_data = self.get_layout()  # store current positions
         for item in self.items:
             self.scene.removeItem(item)
