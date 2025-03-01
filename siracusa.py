@@ -52,6 +52,7 @@ if sys.platform == "win32":
     import windows_hotkeys
     import windows_eject
     import windows_trash
+    import windows_rename_volume
 
 import getinfo, menus, fileops, appimage, zipping
 
@@ -1261,6 +1262,22 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
         new_name, ok = QtWidgets.QInputDialog.getText(self, "Rename", "New name:", QtWidgets.QLineEdit.EchoMode.Normal, item.display_name)
         if ok and new_name:
             new_path = os.path.join(self.folder_path, new_name)
+            # Check if the object to be renamed is a mountpoint and if we are on windows, in which case we rename the volume label of the drive
+            if os.path.ismount(item.file_path) and sys.platform == "win32":
+                try:
+                    # Get position of the item in the scene
+                    pos = item.pos()
+                    if windows_rename_volume.rename_volume(item.file_path[0], new_name):
+                        # Remove the old item from the scene
+                        self.scene.removeItem(item)
+                        # Create a new item with the new name
+                        item = FileItem(new_path, pos)
+                        item.display_name = new_name
+                        self.scene.addItem(item)
+                        self.save_layout()
+                except Exception as e:
+                    QtWidgets.QMessageBox.critical(self, "Error", f"Error renaming {item.file_path}: {e}")
+                return
             try:
                 os.rename(item.file_path, new_path)
                 item.file_path = new_path

@@ -6,3 +6,4 @@ pylnk3
 PySquashfsImage
 pyelftools
 zstandard
+wmi
