@@ -1268,13 +1268,7 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
                     # Get position of the item in the scene
                     pos = item.pos()
                     if windows_rename_volume.rename_volume(item.file_path[0], new_name):
-                        # Remove the old item from the scene
-                        self.scene.removeItem(item)
-                        # Create a new item with the new name
-                        item = FileItem(new_path, pos)
-                        item.display_name = new_name
-                        self.scene.addItem(item)
-                        self.save_layout()
+                        self.refresh_view()
                 except Exception as e:
                     QtWidgets.QMessageBox.critical(self, "Error", f"Error renaming {item.file_path}: {e}")
                 return
