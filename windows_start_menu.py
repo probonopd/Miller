@@ -105,6 +105,7 @@ def add_items_from_directory(menu, directory, clear_first=True, recursive=True, 
                 submenu = menu.addMenu(name)
                 submenu.setIcon(QtGui.QIcon.fromTheme("folder"))
                 submenu.path = full_path
+                submenu.installEventFilter(menu)  # Install event filter on submenu
                 # Connect aboutToShow to repopulate the submenu dynamically.
                 submenu.aboutToShow.connect(lambda m=submenu: add_items_from_directory(m, m.path, True, recursive, add_folders))
                 submenu.hovered.connect(folder_menu_hovered)
@@ -144,7 +145,13 @@ class StartMenu(QtWidgets.QMenu):
             os.path.join(os.getenv("ProgramData", ""), r"Microsoft\Windows\Start Menu\Programs"),
             os.path.join(os.getenv("APPDATA", ""), r"Microsoft\Windows\Start Menu\Programs")
         ]
-    
+        
+        self.key_sequence = ""
+        self.key_timer = QtCore.QTimer()
+        self.key_timer.setInterval(1000)  # 1 second to reset the key sequence
+        self.key_timer.timeout.connect(self.reset_key_sequence)
+        self.installEventFilter(self)
+
     def populate_start_menu(self):
         self.clear()  # Clear the entire menu on each opening
         # Add the .exe files in C:\Windows but not its subdirectories.
@@ -152,6 +159,7 @@ class StartMenu(QtWidgets.QMenu):
         submenu = self.addMenu("Windows")
         submenu.setIcon(QtGui.QIcon.fromTheme("folder"))
         submenu.path = self, os.getenv("SystemRoot", "")
+        submenu.installEventFilter(self)  # Install event filter on submenu
         # Connect aboutToShow to repopulate the submenu dynamically.
         submenu.aboutToShow.connect(lambda m=submenu: add_items_from_directory(submenu, os.getenv("SystemRoot", ""), clear_first=True, recursive=False, add_folders=self.add_folders))
         submenu.hovered.connect(folder_menu_hovered)
@@ -164,6 +172,26 @@ class StartMenu(QtWidgets.QMenu):
         # If a menu has no actions, disable it so it doesn't show up as an empty submenu.
         if not self.actions():
             self.setEnabled(False)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.Type.KeyPress:
+            key = event.text().lower()
+            if key.isalpha():
+                self.key_sequence += key
+                self.key_timer.start()  # Restart the timer on each key press
+                self.select_menu_item()
+                return True
+        return super().eventFilter(obj, event)
+
+    def reset_key_sequence(self):
+        self.key_sequence = ""
+        self.key_timer.stop()
+
+    def select_menu_item(self):
+        for action in self.actions():
+            if action.text().lower().startswith(self.key_sequence):
+                self.setActiveAction(action)
+                break
 
 class StartMenuWindow(QtWidgets.QMainWindow):
     def __init__(self):
