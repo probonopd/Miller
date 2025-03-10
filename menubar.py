@@ -8,7 +8,18 @@ class RoundedMenuBar(QtWidgets.QMenuBar):
         super().__init__()
         self.round_left = round_left
         self.round_right = round_right
-        
+        self.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        # Trigger menu even though user clicked let to it
+        if event.type() == QtCore.QEvent.Type.MouseButtonPress:
+            first_menu_action = self.actions()[0]
+            first_menu_rect = self.actionGeometry(first_menu_action)
+            if event.pos().x() < first_menu_rect.x():
+                self.start_menu = first_menu_action.menu()
+                self.start_menu.popup(self.mapToGlobal(first_menu_rect.bottomLeft()))
+                return True  # Event handled
+        return super().eventFilter(obj, event)
 
     def paintEvent(self, event):
         super().paintEvent(event)
