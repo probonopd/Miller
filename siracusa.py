@@ -57,6 +57,7 @@ if sys.platform == "win32":
 import getinfo, menus, fileops, appimage, zipping
 
 from styling import Styling
+from grid_positioner import GridPositioner
 
 LAYOUT_FILENAME = "._layout.json"
 
@@ -331,7 +332,7 @@ class FileItem(QtWidgets.QGraphicsObject):
         if not self.pixmap:
             # If the item extension is ".desktop", we read each line, find the line that starts with Icon=, and extract the icon name.
             if os.path.splitext(self.file_path)[1].lower() == ".desktop":
-                with open(self.file_path, "r") as f:
+                with open(self.file_path, "r", encoding="utf-8", errors="ignore") as f:
                     icon_value = None
                     for line in f:
                         if line.startswith("Icon="):
@@ -1109,8 +1110,6 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             trash_item.display_name = "Trash"
             trash_item.is_trash = True
             self.items.append(trash_item)
-            if trash_item not in self.scene.items():
-                self.scene.addItem(trash_item)
 
         # Append each file or folder to self.items
         # Only add items that are not hidden, based on the user's preference
@@ -1127,62 +1126,33 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
             if not item.hidden or app.preferences.value("show_hidden_files", True, type=bool):
                 self.items.append(item)
 
-        occupied_positions = set()  # Store occupied positions
+        # Initialize the grid positioner with container dimensions and grid cell sizes.
+        grid_positioner = GridPositioner(
+            grid_width=grid_width,
+            grid_height=grid_height,
+            container_width=self.width(),
+            container_height=self.height(),
+            desktop=self.is_desktop_window
+        )
 
-        # Mark positions of already existing visible items
+        # Register positions that are already occupied from stored layout data.
+        for path, pos in stored_positions.items():
+            grid_x = round(pos[0] / grid_width)
+            grid_y = round(pos[1] / grid_height)
+            grid_positioner.occupied_positions.add((grid_x, grid_y))
+
+        # Now assign positions for each file item.
         for item in self.items:
-            if item.pos() == QtCore.QPointF(0, 0):
-                continue
-            # Skip hidden items in grid position calculation
-            grid_x = round(item.x() / grid_width)
-            grid_y = round(item.y() / grid_height)
-            occupied_positions.add((grid_x, grid_y))
-
-        # Also mark stored positions to avoid overlapping them
-        for path, (pos_x, pos_y) in stored_positions.items():
-            item = next((item for item in self.items if item.file_path == path), None)
-            if item:
-                grid_x = round(pos_x / grid_width)
-                grid_y = round(pos_y / grid_height)
-                occupied_positions.add((grid_x, grid_y))
-
-        def find_next_available_position():
-            """Finds the first free position based on layout direction."""
-            if self.is_desktop_window:
-                # Desktop: Layout from top-right to bottom-left
-                x = (self.width() // grid_width) - 1
-                y = 0
-                while (x, y) in occupied_positions:
-                    x -= 1  # Move left
-                    if x < 0:  # Move to next row if needed
-                        x = (self.width() // grid_width) - 1
-                        y += 1
+            # If a stored position exists, use it.
+            if item.display_name in stored_positions:
+                pos_x, pos_y = stored_positions[item.display_name]
+                item.setPos(QtCore.QPointF(pos_x, pos_y))
+            # Otherwise, find a new available position.
             else:
-                # Normal case: Layout from top-left to bottom-right
-                x, y = 0, 0
-                while (x, y) in occupied_positions:
-                    x += 1  # Move right
-                    if x * grid_width > self.width() - 2 * grid_width:
-                        x = 0
-                        y += 1
+                pos = grid_positioner.find_next_available_position()
+                item.setPos(pos)
 
-            occupied_positions.add((x, y))
-            return QtCore.QPointF(x * grid_width, y * grid_height)
-
-        # Now set the positions for visible items only
         for item in self.items:
-            name = item.display_name
-            # Restore position if stored, otherwise find a free one
-            if name in stored_positions:
-                pos_x, pos_y = stored_positions[name]
-                pos = QtCore.QPointF(pos_x, pos_y)
-            elif name in self.drop_target_positions:
-                pos = self.drop_target_positions.pop(name)
-            else:
-                pos = find_next_available_position()
-
-            # Set the position and ensure visibility based on preferences
-            item.setPos(pos)
             item.setVisible(True)   # Ensure visible items are visible
             item.openFolderRequested.connect(self.open_folder_from_item)
             if item not in self.scene.items():
@@ -1432,7 +1402,8 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
     def refresh_view(self):
         # Return if the folder path does not exist anymore, e.g., when the drive is removed or the folder is deleted
         if not os.path.exists(self.folder_path):
-            print(f"Folder {self.folder_path} does not exist. Not refreshing view.")
+            print(f"Folder {self.folder_path} does not exist. Not refreshing view, closing window instead.")
+            self.close()
             return
         self.layout_data = self.get_layout()  # store current positions
         for item in self.items:
