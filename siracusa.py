@@ -1492,14 +1492,14 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
             # Place Trash item at the end in a separate logic
             if trash_item:
-                occupied_positions.add((trash_x, trash_y))  # 🚀 Fix: Ensure Trash's spot is not overwritten
+                occupied_positions.add((trash_x, trash_y))
                 trash_item.setPos(QtCore.QPointF(trash_x * grid_width, trash_y * grid_height))
 
         self.update_scene_rect()
         self.save_layout()
 
     def update_status_bar(self):
-        self.statusBar().showMessage(f"Folder: {self.folder_path} | Items: {len(self.items)}")
+        self.statusBar().showMessage(f"Items: {len(self.items)}")
 
     def get_info(self):
         selected_items = self.scene.selectedItems()
