@@ -58,6 +58,7 @@ import getinfo, menus, fileops, appimage, zipping
 
 from styling import Styling
 from grid_positioner import GridPositioner
+from preferences import PreferencesDialog
 
 LAYOUT_FILENAME = "._layout.json"
 
@@ -1645,6 +1646,21 @@ class SpatialFilerWindow(QtWidgets.QMainWindow):
 
     def selectedItems(self):
         return self.scene.selectedItems()
+
+    def contextMenuEvent(self, event):
+        """Show context menu on right-click on the desktop."""
+        if self.is_desktop_window:
+            menu = QtWidgets.QMenu(self)
+            new_folder_action = menu.addAction("New Folder")
+            menu.addSeparator()
+            preferences_action = menu.addAction("Preferences")
+            action = menu.exec(event.globalPos())
+            if action == new_folder_action:
+                self.new_folder()
+            elif action == preferences_action:
+                PreferencesDialog(self).exec()
+        else:
+            super().contextMenuEvent(event)
 
 """def handle_drive_removal(drive):
         normalized_drive = os.path.normpath(drive)
