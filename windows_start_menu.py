@@ -154,6 +154,7 @@ class StartMenu(QtWidgets.QMenu):
 
     def populate_start_menu(self):
         self.clear()  # Clear the entire menu on each opening
+
         # Add the .exe files in C:\Windows but not its subdirectories.
         # Create a submenu for the folder
         submenu = self.addMenu("Windows")
@@ -172,6 +173,14 @@ class StartMenu(QtWidgets.QMenu):
         # If a menu has no actions, disable it so it doesn't show up as an empty submenu.
         if not self.actions():
             self.setEnabled(False)
+
+        # "Add or Remove Programs" (Control Panel)
+        self.addSeparator()
+        appwizaction = QtGui.QAction("Add or Remove Programs", self)
+        # When selected, execute appwiz.cpl
+        appwizaction.triggered.connect(lambda: os.startfile("appwiz.cpl"))
+        self.addAction(appwizaction)
+        self.addSeparator()
 
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.Type.KeyPress:
