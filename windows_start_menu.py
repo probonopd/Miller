@@ -4,6 +4,9 @@ import os, sys, shlex, subprocess
 
 from PyQt6 import QtWidgets, QtGui, QtCore
 from pylnk3 import Lnk
+import win32com.client
+from win32com.shell import shell, shellcon
+import ctypes
 
 from styling import Styling
 
@@ -44,12 +47,21 @@ def replace_placeholders(arguments, data):
 
 def launch_target(data):
     target_path = data.get("target_path")
+    requires_admin = data.get("requires_admin", False)
     if not target_path or not os.path.exists(target_path):
         QtWidgets.QMessageBox.warning(None, "Launch Error", f"Target not found:\n{target_path}")
         return
     try:
-        arguments = replace_placeholders(data.get("arguments"), data)
-        subprocess.Popen([target_path] + shlex.split(arguments) if arguments else [target_path])
+        if requires_admin:
+            print(f"[INFO] Launching as admin: {target_path}")
+            # Launch with admin privileges using PowerShell
+            subprocess.run([
+                "powershell", "-Command",
+                f'Start-Process "{target_path}" -Verb RunAs'
+            ], check=False)
+        else:
+            print(f"[INFO] Launching normally: {target_path}")
+            os.startfile(target_path)
     except Exception as e:
         QtWidgets.QMessageBox.warning(None, "Launch Error", f"Could not launch target:\n{e}")
 
@@ -72,6 +84,46 @@ def folder_menu_hovered():
     menu = QtWidgets.QApplication.instance().sender()
     if menu and hasattr(menu, "path") and QtWidgets.QApplication.keyboardModifiers() != QtCore.Qt.KeyboardModifier.NoModifier:
         launch_folder(menu.path)
+
+def is_shortcut_admin(lnk_path):
+    """Detect if a shortcut requests admin privileges using Windows Shell verbs (no pefile)."""
+    try:
+        shell_app = win32com.client.Dispatch("WScript.Shell")
+        shortcut = shell_app.CreateShortcut(str(lnk_path))
+        target = shortcut.TargetPath
+        if not target or not os.path.exists(target):
+            return False
+        # Use Shell.Application to check for "run as administrator" verb
+        shell_obj = win32com.client.Dispatch("Shell.Application")
+        folder = shell_obj.NameSpace(os.path.dirname(target))
+        if folder is None:
+            return False
+        item = folder.ParseName(os.path.basename(target))
+        if item is None:
+            return False
+        verbs = [v.name for v in item.Verbs()]
+        if any("run as administrator" in v.lower() for v in verbs):
+            return True
+    except Exception:
+        pass
+    return False
+
+def is_exe_admin(exe_path):
+    """Detect if an exe can be run as admin by checking for the 'run as administrator' verb."""
+    try:
+        shell_obj = win32com.client.Dispatch("Shell.Application")
+        folder = shell_obj.NameSpace(os.path.dirname(exe_path))
+        if folder is None:
+            return False
+        item = folder.ParseName(os.path.basename(exe_path))
+        if item is None:
+            return False
+        verbs = [v.name for v in item.Verbs()]
+        if any("run as administrator" in v.lower() for v in verbs):
+            return True
+    except Exception:
+        pass
+    return False
 
 def add_items_from_directory(menu, directory, clear_first=True, recursive=True, add_folders=True):
     """
@@ -117,16 +169,28 @@ def add_items_from_directory(menu, directory, clear_first=True, recursive=True, 
         elif entry.lower().endswith(".lnk"):
             shortcut_data = resolve_shortcut(full_path)
             if not any(keyword in name.lower() for keyword in exclude) and shortcut_data.get("target"):
+                # Use admin detection from shortcut manifest/verbs
+                requires_admin = is_shortcut_admin(full_path)
                 action = QtGui.QAction(name, menu)
                 action.setIcon(load_icon(shortcut_data.get("icon"), shortcut_data.get("target")))
-                action.setData({"target_path": shortcut_data.get("target"), "arguments": shortcut_data.get("arguments")})
+                action.setData({
+                    "target_path": shortcut_data.get("target"),
+                    "arguments": shortcut_data.get("arguments"),
+                    "requires_admin": requires_admin
+                })
                 action.triggered.connect(menu_item_triggered)
                 menu.addAction(action)
         elif entry.lower().endswith(".exe"):
             if not any(keyword in name.lower() for keyword in exclude):
+                # Use admin detection from exe manifest
+                requires_admin = is_exe_admin(full_path)
                 action = QtGui.QAction(name, menu)
                 action.setIcon(load_icon(full_path))
-                action.setData({"target_path": full_path, "arguments": None})
+                action.setData({
+                    "target_path": full_path,
+                    "arguments": None,
+                    "requires_admin": requires_admin
+                })
                 action.triggered.connect(menu_item_triggered)
                 menu.addAction(action)
 
